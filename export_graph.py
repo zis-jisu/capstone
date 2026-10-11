@@ -1,4 +1,5 @@
 import json
+from slack_person_ids import normalize_graph
 import os
 from collections import Counter
 
@@ -46,24 +47,13 @@ ALLOWED_RELATIONS = {
     },
     "ACTOR": {("Person", "Event")},
     "REQUESTER": {("Person", "Event")},
-    "DEPENDS_ON": {("Event", "Event")},
+    "DEPENDS_ON": {("Event", "Event"), ("Task", "Task")},
 }
 
-EXPECTED_NODE_COUNT = 492
-EXPECTED_EDGE_COUNT = 1766
+EXPECTED_NODE_COUNT = 23
+EXPECTED_EDGE_COUNT = 56
 
-EXPECTED_RELATION_COUNTS = {
-    "HAS_TASK": 104,
-    "HAS_EVENT": 312,
-    "OWNER": 104,
-    "APPROVER": 12,
-    "REVIEWER": 104,
-    "COLLABORATOR": 182,
-    "RELATED": 480,
-    "ACTOR": 312,
-    "REQUESTER": 0,
-    "DEPENDS_ON": 156,
-}
+EXPECTED_RELATION_COUNTS = {'HAS_TASK': 4, 'HAS_EVENT': 12, 'OWNER': 4, 'APPROVER': 0, 'REVIEWER': 4, 'COLLABORATOR': 1, 'RELATED': 4, 'ACTOR': 12, 'REQUESTER': 6, 'DEPENDS_ON': 9}
 
 
 # ============================================================
@@ -142,6 +132,8 @@ with open(
     encoding="utf-8"
 ) as f:
     source_graph = json.load(f)
+
+source_graph = normalize_graph(source_graph)
 
 source_nodes = source_graph.get("nodes", [])
 source_edges = source_graph.get("edges", [])
@@ -250,6 +242,9 @@ def normalize_source_edge(edge):
 
     source_type = node_id_to_type.get(source)
     target_type = node_id_to_type.get(target)
+
+    if relation in ALLOWED_RELATIONS and (source_type, target_type) in ALLOWED_RELATIONS[relation]:
+        return (source, relation, target)
 
     if relation == "PARTICIPATES_IN":
         role = str(edge.get("role") or "").lower()
@@ -476,7 +471,7 @@ for db_edge in db_edges:
         relation == "DEPENDS_ON"
         and "dependency_scope" not in export_edge
     ):
-        export_edge["dependency_scope"] = "event"
+        export_edge["dependency_scope"] = source_type.lower()
 
     edges.append(export_edge)
 

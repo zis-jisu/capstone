@@ -1,4 +1,5 @@
 import json
+from slack_person_ids import normalize_graph
 
 import os
 
@@ -215,6 +216,7 @@ ALLOWED_RELATION_TYPES = {
     "DEPENDS_ON": {
 
         ("Event", "Event"),
+        ("Task", "Task"),
 
     },
 
@@ -222,23 +224,12 @@ ALLOWED_RELATION_TYPES = {
 
 
 
-EXPECTED_NODE_COUNT = 492
+EXPECTED_NODE_COUNT = 23
 
 # Current synthetic_graph.json after conversion to the final ML schema.
-EXPECTED_EDGE_COUNT = 1766
+EXPECTED_EDGE_COUNT = 56
 
-EXPECTED_RELATION_COUNTS = {
-    "OWNER": 104,
-    "APPROVER": 12,
-    "REVIEWER": 104,
-    "COLLABORATOR": 182,
-    "RELATED": 480,      # Person->Task 26 + Person->Event 454
-    "ACTOR": 312,
-    "REQUESTER": 0,     # no valid Person->Event requester edge in current synthetic data
-    "HAS_EVENT": 312,
-    "DEPENDS_ON": 156,  # Event->Event only
-    "HAS_TASK": 104,
-}
+EXPECTED_RELATION_COUNTS = {'HAS_TASK': 4, 'HAS_EVENT': 12, 'OWNER': 4, 'APPROVER': 0, 'REVIEWER': 4, 'COLLABORATOR': 1, 'RELATED': 4, 'ACTOR': 12, 'REQUESTER': 6, 'DEPENDS_ON': 9}
 
 
 BATCH_SIZE = 500
@@ -292,6 +283,8 @@ if not os.path.exists(JSON_FILE):
 with open(JSON_FILE, "r", encoding="utf-8") as f:
 
     graph = json.load(f)
+
+graph = normalize_graph(graph)
 
 
 
@@ -557,6 +550,12 @@ for node in nodes:
             "speaker_id": node.get("speaker_id"),
 
             "slack_ts": node.get("slack_ts"),
+            "slack_user_id": node.get("slack_user_id"),
+            "conversation_id": node.get("conversation_id"),
+            "conversation_type": node.get("conversation_type"),
+            "parent_ts": node.get("parent_ts"),
+            "prerequisite": node.get("prerequisite"),
+            "constraint_text": node.get("constraint_text"),
 
             "subject": node.get("subject"),
 
@@ -1157,7 +1156,7 @@ for edge in edges:
     elif original_relation == "RELATED_TO_EVENT":
         relation = "RELATED"
 
-    elif original_relation in {"ACTOR", "REQUESTER", "RELATED"}:
+    elif original_relation in {"ACTOR", "REQUESTER", "RELATED", "OWNER", "APPROVER", "REVIEWER", "COLLABORATOR"}:
         relation = original_relation
 
 
@@ -1171,8 +1170,8 @@ for edge in edges:
     elif original_relation == "DEPENDS_ON":
 
         if (
-            source_type == "Event"
-            and target_type == "Event"
+            source_type == target_type
+            and source_type in {"Event", "Task"}
         ):
             relation = "DEPENDS_ON"
 
@@ -1756,6 +1755,9 @@ clear_existing_edges()
 print("\n10-1. Supabase에 새 Edge 저장 중...")
 
 insert_edges(db_edges)
+
+# Keep all 21 original messages, including messages without extracted Events.
+upsert_rows("slack_messages", graph.get("slack_messages", []), "message_id")
 
 
 # =========================================================
