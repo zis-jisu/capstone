@@ -74,6 +74,10 @@ def main():
             raise ValueError("Plan bundle differs from its source result.")
         write(Path(args.apply_plan).with_suffix(".before.json"), before)
         store.save(bundle, before)
+        # Original Slack text is kept separately from Graph node/edge exports.
+        # Upsert only selected fields, preserving existing work/task associations.
+        store.save_messages(plan["result"].get("messages", []),
+                            plan["result"].get("people", []))
         after = store.snapshot()
         # Verify every intended row after writing (ignore server-created fields).
         from src.db import TABLE_KEYS

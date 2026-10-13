@@ -30,7 +30,7 @@ class SupabaseStore:
             raise ValueError("Configure SUPABASE_URL and a backend-only SUPABASE_KEY.")
 
     def request(self, table, *, params=None, method="GET", rows=None):
-        if table not in TABLE_KEYS:
+        if table not in TABLE_KEYS and table != "slack_messages":
             raise ValueError("Unknown pipeline table.")
         url = self.url + "/rest/v1/" + table
         if params:
@@ -66,6 +66,39 @@ class SupabaseStore:
         for start in range(0, len(rows), 200):
             self.request(table, method="POST", params={"on_conflict": TABLE_KEYS[table]},
                          rows=rows[start:start + 200])
+
+    def save_messages(self, messages, people):
+        """Upsert original Slack text without clearing existing task/work links.
+
+        Save persons first: author_id references persons(person_id).
+        Recollecting an edited message updates the existing message_id.
+        """
+        names = {p["slack_id"]: p["name"] for p in people}
+        rows = []
+        for message in messages:
+            author_id = message["slack_id"]
+            if author_id not in names:
+                raise ValueError(f"Unknown Slack author: {author_id}")
+            rows.append({
+                "message_id": message["source_id"],
+                "author_id": author_id,
+                "author_name": names[author_id],
+                "channel": message["channel"],
+                "conversation_id": message["channel"],
+                "thread_id": message.get("thread_key"),
+                "conversation_type": message.get("conversation_type", "unknown"),
+                "slack_ts": message["timestamp"],
+                "parent_ts": message.get("parent_ts"),
+                "timestamp": message["timestamp"],
+                "text": message["raw_text"],
+                "reference_urls": message.get("reference_urls", []),
+                "raw_json": message,
+            })
+        for start in range(0, len(rows), 200):
+            self.request("slack_messages", method="POST",
+                         params={"on_conflict": "message_id"},
+                         rows=rows[start:start + 200])
+        return rows
 
     def save(self, bundle, before):
         """Upsert nodes then edges; remove only obsolete affected relationships.
