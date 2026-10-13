@@ -7,10 +7,10 @@ Supabase 최신 mock 테이블을 그래프로 변환해 R-GAE 모델을 학습�
 ```text
 Supabase mock tables
   -> get_graph_snapshot() REST RPC
-  -> Railway Cron: 매주 모델 학습
+  -> POST /v1/training: 필요할 때 1회 학습
   -> Supabase Storage: models/latest.pt 저장
   -> Railway FastAPI
-  -> 프론트가 person_id 전달
+  -> Postman 또는 클라이언트가 person_id 전달
   -> task_id별 우선순위 반환
 ```
 
@@ -70,13 +70,13 @@ X-API-Key: <MODEL_API_KEY>
 
 | Method | Path | 용도 |
 |---|---|---|
-| `POST` | `/v1/training` | 최신 그래프로 수동 학습 시작 |
+| `POST` | `/v1/training` | 최신 그래프로 학습하고 진행 상황을 NDJSON으로 스트리밍 |
 | `GET` | `/v1/training` | 학습 상태와 최신 성공 학습일 조회 |
 | `GET` | `/health` | Railway 상태 확인 |
 
 ## 환경변수
 
-`.env`와 실제 Secret Key는 GitHub에 올리지 않습니다. Railway의 Shared Variables에 다음 값을 설정해 API와 Cron 서비스가 함께 사용하게 합니다.
+`.env`와 실제 Secret Key는 GitHub에 올리지 않습니다. Railway API 서비스의 Variables에 다음 값을 설정합니다.
 
 ```env
 SUPABASE_URL=https://PROJECT_ID.supabase.co
@@ -100,12 +100,9 @@ GitHub `zis-jisu/capstone` 저장소의 `ml` 브랜치를 소스로 사용합니
    - Start Command: Dockerfile 기본 명령
    - Healthcheck: `/health`
    - Public Domain: 생성
-2. 주간 학습 Cron 서비스
-   - 같은 저장소와 `ml` 브랜치 사용
-   - Start Command: `python -m rgae_service.training`
-   - Cron Schedule: `0 12 * * 0` (매주 일요일 21:00 KST)
-   - Public Domain: 불필요
 
-Cron이 새 모델을 Supabase Storage에 저장하면 API는 `MODEL_REFRESH_SECONDS` 간격으로 이를 감지해 재시작 없이 최신 모델과 학습일을 반영합니다.
+API 서비스는 Railway Serverless를 켜 둡니다. `POST /v1/training`이 20초마다 진행 상태 또는 heartbeat를 전송하므로 학습 중에는 컨테이너가 유지되고, 완료 후 요청이 없으면 자동으로 다시 휴면합니다. Postman에서 이 요청을 닫지 말고 마지막 `completed` 또는 `failed` 줄까지 확인합니다. 학습 완료 모델은 Supabase Storage에 저장됩니다.
 
-자세한 배포 및 프론트 프록시 예시는 `README-deploy.md`를 참고하세요.
+실제 주간 자동화가 필요해질 때는 동일 저장소로 별도 Railway Cron 서비스를 만들고 Start Command를 `python -m rgae_service.training`으로 지정합니다. Cron 프로세스는 학습 완료 후 자동 종료됩니다.
+
+Postman에서 `postman_collection.json`을 Import하면 네 요청을 바로 테스트할 수 있습니다. 상세 순서는 `POSTMAN.md`, 자세한 배포 설명은 `README-deploy.md`를 참고하세요.
