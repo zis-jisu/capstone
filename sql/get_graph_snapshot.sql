@@ -1,4 +1,7 @@
--- Supabase mock tables -> model graph JSON reconstruction RPC
+-- Purpose: backup, reinstall, and version-control the Supabase RPC definition.
+-- Railway does not execute or read this file at runtime. The model server calls
+-- the already-installed public.get_graph_snapshot() through Supabase REST RPC.
+-- Supabase mock tables -> model graph JSON reconstruction RPC.
 -- Verified against the Link_ing project schema on 2026-10-13.
 
 create or replace function public.get_graph_snapshot()

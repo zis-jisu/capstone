@@ -33,9 +33,26 @@ curl -X POST "$MODEL_API_URL/v1/priorities" \
 
 완료 상태 Task는 최신 Supabase 값으로 제외됩니다. 학습 후 새로 생긴 Node와 Edge는 다음 학습부터 모델에 포함됩니다.
 
+`rankings`는 배열이 아니라 `task_id`를 key로 하는 객체입니다. 각 Task 값에는 `final_priority_rank`, `final_priority_score`와 세부 점수가 들어갑니다.
+
+```json
+{
+  "person_id": "U0C22C8M742",
+  "person_name": "김지수",
+  "model_trained_at": "2026-10-11T12:00:00+00:00",
+  "rankings": {
+    "TASK-001": {
+      "task_id": "TASK-001",
+      "final_priority_rank": 1,
+      "final_priority_score": 87.4
+    }
+  }
+}
+```
+
 ## Supabase 준비
 
-1. `sql/get_graph_snapshot.sql`의 `get_graph_snapshot()`을 SQL Editor에서 실행합니다.
+1. 최초 설치 또는 RPC 복구가 필요할 때만 `sql/get_graph_snapshot.sql`을 Supabase SQL Editor에서 실행합니다. Railway는 이 파일을 실행하지 않습니다.
 2. mock 테이블에 데이터를 넣습니다. 빈 그래프는 학습하지 않습니다.
 3. 비공개 Storage bucket `rgae-models`를 만듭니다.
 4. Secret Key는 Railway 변수에만 저장하고 브라우저에 노출하지 않습니다.

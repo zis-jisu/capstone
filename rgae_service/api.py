@@ -170,11 +170,10 @@ def priorities(request: Request, body: PriorityRequest):
                 "person_id": body.person_id,
                 "person_name": person.get("name"),
                 "model_trained_at": record["trained_at"],
-                "total_tasks": 0,
-                "rankings": [],
+                "rankings": {},
             }
 
-        impact, removed_edges = task_impact_scores(
+        impact, _removed_edges = task_impact_scores(
             model,
             prepared,
             body.person_id,
@@ -202,10 +201,7 @@ def priorities(request: Request, body: PriorityRequest):
         "person_id": body.person_id,
         "person_name": person.get("name"),
         "model_trained_at": record["trained_at"],
-        "scope": "2-hop non-completed tasks",
-        "removed_edge_count": removed_edges,
-        "total_tasks": len(rankings),
-        "rankings": rankings,
+        "rankings": {row["task_id"]: row for row in rankings},
     }
 
 
