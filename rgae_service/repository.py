@@ -62,7 +62,18 @@ def download_model(settings: Settings, destination: Path) -> str | None:
         f"{quote(settings.model_object_path, safe='/')}"
     )
     response = httpx.get(url, headers=_headers(settings), timeout=180)
-    if response.status_code == 404:
+    # Supabase Storage can return HTTP 400 with an embedded 404/not_found
+    # payload when an object has not been created yet. That is the normal
+    # state before the first successful training, not an API failure.
+    response_text = response.text.lower()
+    if response.status_code == 404 or (
+        response.status_code == 400
+        and (
+            "object not found" in response_text
+            or '"statuscode":"404"' in response_text.replace(" ", "")
+            or '"error":"not_found"' in response_text.replace(" ", "")
+        )
+    ):
         return None
     response.raise_for_status()
     destination.parent.mkdir(parents=True, exist_ok=True)
