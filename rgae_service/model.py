@@ -181,10 +181,12 @@ def train_model(
         loss.backward()
         optimizer.step()
         final_loss = float(loss.item())
-        if epoch == 1 or epoch % 100 == 0 or epoch == epochs:
+        # Keep the coordinator's state current on every epoch. The API decides
+        # how often to emit progress over the streaming response.
+        if progress is not None:
+            progress(epoch, epochs, final_loss)
+        if epoch == 1 or epoch % 10 == 0 or epoch == epochs:
             print(f"epoch={epoch:04d} loss={final_loss:.6f}", flush=True)
-            if progress is not None:
-                progress(epoch, epochs, final_loss)
     return final_loss
 
 

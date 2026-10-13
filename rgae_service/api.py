@@ -6,6 +6,7 @@ import json
 import queue
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
@@ -46,6 +47,11 @@ class TrainingCoordinator:
         self.state: dict[str, Any] = {
             "status": "idle",
             "trigger": None,
+            "current_epoch": 0,
+            "total_epochs": settings.epochs,
+            "progress_percent": 0.0,
+            "loss": None,
+            "updated_at": None,
             "error": None,
             "last_result": None,
         }
@@ -57,16 +63,39 @@ class TrainingCoordinator:
             self.state = {
                 "status": "running",
                 "trigger": trigger,
+                "current_epoch": 0,
+                "total_epochs": self.settings.epochs,
+                "progress_percent": 0.0,
+                "loss": None,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
                 "error": None,
                 "last_result": self.state.get("last_result"),
             }
             return True
+
+    def update_progress(self, epoch: int, epochs: int, loss: float) -> None:
+        with self.lock:
+            self.state.update(
+                {
+                    "status": "running",
+                    "current_epoch": epoch,
+                    "total_epochs": epochs,
+                    "progress_percent": round(epoch / epochs * 100, 1),
+                    "loss": loss,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
     def complete(self, trigger: str, result: dict[str, Any]) -> None:
         with self.lock:
             self.state = {
                 "status": "completed",
                 "trigger": trigger,
+                "current_epoch": self.settings.epochs,
+                "total_epochs": self.settings.epochs,
+                "progress_percent": 100.0,
+                "loss": result.get("final_loss"),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
                 "error": None,
                 "last_result": result,
             }
@@ -76,6 +105,11 @@ class TrainingCoordinator:
             self.state = {
                 "status": "failed",
                 "trigger": trigger,
+                "current_epoch": self.state.get("current_epoch", 0),
+                "total_epochs": self.state.get("total_epochs", self.settings.epochs),
+                "progress_percent": self.state.get("progress_percent", 0.0),
+                "loss": self.state.get("loss"),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
                 "error": f"{type(error).__name__}: {error}",
                 "last_result": self.state.get("last_result"),
             }
@@ -157,15 +191,18 @@ def start_training(request: Request, body: TrainingRequest):
     events: queue.Queue[dict[str, Any]] = queue.Queue()
 
     def progress(epoch: int, epochs: int, loss: float) -> None:
-        events.put(
-            {
-                "status": "running",
-                "trigger": body.trigger,
-                "epoch": epoch,
-                "epochs": epochs,
-                "loss": loss,
-            }
-        )
+        coordinator.update_progress(epoch, epochs, loss)
+        if epoch == 1 or epoch % 10 == 0 or epoch == epochs:
+            events.put(
+                {
+                    "status": "running",
+                    "trigger": body.trigger,
+                    "current_epoch": epoch,
+                    "total_epochs": epochs,
+                    "progress_percent": round(epoch / epochs * 100, 1),
+                    "loss": loss,
+                }
+            )
 
     def work() -> None:
         try:
