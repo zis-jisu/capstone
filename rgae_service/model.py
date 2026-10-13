@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 from collections import defaultdict
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import torch
@@ -75,6 +75,22 @@ def prepare_graph(graph: dict[str, Any], seed: int) -> dict[str, Any]:
         )
         for edge in edges
     }
+    negative_candidate_pools: list[list[int]] = []
+    for source, target, relation in zip(
+        edge_index[0].tolist(), edge_index[1].tolist(), edge_type.tolist()
+    ):
+        candidates = nodes_by_type[node_type_by_idx[target]]
+        valid = [
+            candidate
+            for candidate in candidates
+            if candidate != target
+            and (source, candidate, relation) not in known_triples
+        ]
+        if not valid:
+            raise RuntimeError(
+                f"negative sampling has no candidate for {(source, target, relation)}"
+            )
+        negative_candidate_pools.append(valid)
     return {
         "nodes": nodes,
         "node_to_idx": node_to_idx,
@@ -85,6 +101,7 @@ def prepare_graph(graph: dict[str, Any], seed: int) -> dict[str, Any]:
         "node_type_by_idx": node_type_by_idx,
         "nodes_by_type": nodes_by_type,
         "known_triples": known_triples,
+        "negative_candidate_pools": negative_candidate_pools,
     }
 
 
@@ -94,20 +111,10 @@ def sample_negative_edges(prepared: dict[str, Any], seed: int) -> tuple[torch.Te
     negative_target: list[int] = []
     negative_relation: list[int] = []
     edge_index, edge_type = prepared["edge_index"], prepared["edge_type"]
-    for source, target, relation in zip(
-        edge_index[0].tolist(), edge_index[1].tolist(), edge_type.tolist()
+    for position, (source, relation) in enumerate(
+        zip(edge_index[0].tolist(), edge_type.tolist())
     ):
-        candidates = prepared["nodes_by_type"][prepared["node_type_by_idx"][target]]
-        valid = [
-            candidate
-            for candidate in candidates
-            if candidate != target
-            and (source, candidate, relation) not in prepared["known_triples"]
-        ]
-        if not valid:
-            raise RuntimeError(
-                f"negative sampling has no candidate for {(source, target, relation)}"
-            )
+        valid = prepared["negative_candidate_pools"][position]
         negative_source.append(source)
         negative_target.append(rng.choice(valid))
         negative_relation.append(relation)
@@ -153,6 +160,7 @@ def train_model(
     device: torch.device,
     epochs: int,
     seed: int,
+    progress: Callable[[int, int, float], None] | None = None,
 ) -> float:
     x = prepared["x"].to(device)
     edge_index = prepared["edge_index"].to(device)
@@ -175,6 +183,8 @@ def train_model(
         final_loss = float(loss.item())
         if epoch == 1 or epoch % 100 == 0 or epoch == epochs:
             print(f"epoch={epoch:04d} loss={final_loss:.6f}", flush=True)
+            if progress is not None:
+                progress(epoch, epochs, final_loss)
     return final_loss
 
 
