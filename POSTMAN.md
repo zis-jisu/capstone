@@ -42,7 +42,7 @@ X-API-Key: {{MODEL_API_KEY}}
 
 ```json
 {"accepted":true,"status":"running","trigger":"manual"}
-{"status":"running","epoch":1,"epochs":600,"loss":0.69}
+{"status":"running","current_epoch":1,"total_epochs":100,"progress_percent":1.0,"loss":0.69}
 {"status":"running","heartbeat":true}
 {"status":"completed","trained_at":"..."}
 ```

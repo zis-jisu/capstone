@@ -53,7 +53,7 @@ class Settings:
             model_refresh_seconds=max(
                 0, int(os.getenv("MODEL_REFRESH_SECONDS", "60"))
             ),
-            epochs=int(os.getenv("RGAE_EPOCHS", "600")),
+            epochs=int(os.getenv("RGAE_EPOCHS", "100")),
             seed=int(os.getenv("RGAE_SEED", "42")),
             device=os.getenv("RGAE_DEVICE", "cpu"),
             api_key=os.getenv("MODEL_API_KEY", ""),
