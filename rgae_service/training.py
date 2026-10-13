@@ -4,7 +4,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import torch
 
@@ -21,6 +21,7 @@ def train_once(
     settings: Settings,
     runtime: "ModelRuntime | None" = None,
     trigger: str = "manual",
+    progress: Callable[[int, int, float], None] | None = None,
 ) -> dict[str, Any]:
     graph = normalize_graph(fetch_graph(settings))
     if not graph["nodes"] or not graph["edges"]:
@@ -37,6 +38,7 @@ def train_once(
         device,
         settings.epochs,
         settings.seed,
+        progress=progress,
     )
     trained_at = datetime.now(timezone.utc).isoformat()
     artifact = {
