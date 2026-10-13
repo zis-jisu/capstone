@@ -1,0 +1,103 @@
+{
+  "info": {
+    "name": "Capstone R-GAE API",
+    "description": "Railway에 배포된 R-GAE API의 상태 확인, 수동 학습, 학습 상태 조회, 우선순위 산출 요청 모음입니다.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "MODEL_API_URL",
+      "value": "https://capstone-production-0d32.up.railway.app"
+    },
+    {
+      "key": "MODEL_API_KEY",
+      "value": ""
+    },
+    {
+      "key": "PERSON_ID",
+      "value": "U0C22C8M742"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{MODEL_API_URL}}/health",
+        "description": "서버 상태를 확인합니다. 최초 학습 전에는 waiting_for_training이 정상입니다."
+      }
+    },
+    {
+      "name": "2. Start Manual Training",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{MODEL_API_KEY}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"trigger\": \"manual\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{MODEL_API_URL}}/v1/training",
+        "description": "Supabase RPC에서 최신 그래프를 받아 학습합니다. NDJSON 진행 로그가 끝날 때까지 요청을 열어 두세요. 마지막 줄은 completed 또는 failed입니다."
+      }
+    },
+    {
+      "name": "3. Get Training Status",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{MODEL_API_KEY}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{MODEL_API_URL}}/v1/training",
+        "description": "학습 상태와 최신 성공 학습일을 조회합니다."
+      }
+    },
+    {
+      "name": "4. Get Task Priorities",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{MODEL_API_KEY}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"person_id\": \"{{PERSON_ID}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{MODEL_API_URL}}/v1/priorities",
+        "description": "person_id의 2-hop 범위에 연결된 미완료 Task를 task_id별 우선순위로 반환합니다."
+      }
+    }
+  ]
+}
