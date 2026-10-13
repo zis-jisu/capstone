@@ -7,9 +7,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.5.1+cpu" \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY rgae_service ./rgae_service
 
 CMD ["sh", "-c", "exec uvicorn rgae_service.api:app --host 0.0.0.0 --port ${PORT:-8000}"]
-
