@@ -39,11 +39,10 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
 <div id="login-screen" class="fixed inset-0 z-[100] bg-[#F7F8FA] flex items-center justify-center p-6">
   <div class="w-full max-w-[460px] bg-white rounded-[28px] p-8 shadow-[0_18px_50px_rgba(0,0,0,.08)] border border-[#EEF0F3]">
     <div class="flex items-center gap-3 mb-8">
-      <div class="w-10 h-10 rounded-2xl bg-[#3182F6] text-white flex items-center justify-center"><span class="material-symbols-outlined">hub</span></div>
-      <div><div class="text-[22px] font-bold">LINK-ing</div><div class="text-[13px] text-[#8B95A1]">업무 공백 인수인계</div></div>
+      <div class="flex flex-col items-start gap-1"><img src="/logo.png" alt="LINK-ing" class="w-[210px] h-[76px] object-contain object-left"/><div class="text-[13px] text-[#8B95A1]">업무 공백 인수인계</div></div>
     </div>
-    <h1 class="text-[28px] leading-tight font-bold tracking-tight">YubiKey로 안전하게<br/>업무에 접속하세요</h1>
-    <p class="mt-3 text-[14px] leading-relaxed text-[#6B7684]">모든 담당자는 YubiKey를 사용합니다. 로그인과 업무 열람 기록은 안전하게 남습니다.</p>
+    <h1 class="text-[28px] leading-tight font-bold tracking-tight">LINK-ing 업무에<br/>접속하세요</h1>
+    <p class="mt-3 text-[14px] leading-relaxed text-[#6B7684]">시연 환경에 접속합니다. 실제 YubiKey 인증은 아직 연동되지 않았습니다.</p>
     <div class="mt-7 space-y-3">
       <label class="block">
         <span class="text-[12px] font-semibold text-[#6B7684]">회사 계정</span>
@@ -51,19 +50,18 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
       </label>
       <div class="rounded-2xl bg-[#F2F7FF] border border-[#D9E9FF] p-4 flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl bg-white text-[#3182F6] flex items-center justify-center border border-[#D9E9FF]"><span class="material-symbols-outlined">key</span></div>
-        <div class="flex-1"><div class="text-[13px] font-bold">YubiKey 확인</div><div class="text-[12px] text-[#6B7684] mt-0.5">키를 연결한 뒤 버튼을 눌러주세요.</div></div>
+        <div class="flex-1"><div class="text-[13px] font-bold">시연 접속 확인</div><div class="text-[12px] text-[#6B7684] mt-0.5">시연 화면을 확인할 수 있습니다.</div></div>
         <span class="text-[11px] font-bold text-[#00A46C] bg-[#EAFBF4] px-2 py-1 rounded-full">연결됨</span>
       </div>
     </div>
-    <button onclick="enterApp()" class="mt-6 w-full h-12 rounded-xl bg-[#3182F6] hover:bg-[#1B64DA] text-white font-bold text-[14px]">YubiKey로 로그인</button>
+    <button onclick="enterApp()" class="mt-6 w-full h-12 rounded-xl bg-[#3182F6] hover:bg-[#1B64DA] text-white font-bold text-[14px]">시연 화면 시작</button>
   </div>
 </div>
 
 <!-- SIDEBAR -->
 <aside class="fixed left-0 top-0 bottom-0 w-[248px] bg-white border-r border-[#EEF0F3] z-40 hidden lg:flex flex-col">
   <div class="h-16 px-5 flex items-center gap-2.5 border-b border-[#F2F4F6]">
-    <div class="w-8 h-8 rounded-xl bg-[#3182F6] text-white flex items-center justify-center"><span class="material-symbols-outlined text-[18px]">hub</span></div>
-    <span class="font-bold text-[17px]">LINK-ing</span>
+    <img src="/logo.png" alt="LINK-ing" class="w-[143px] h-12 object-contain object-left"/>
   </div>
   <nav class="p-3 space-y-1">
     <div class="px-3 pt-2 pb-1 text-[10px] font-bold text-[#8B95A1]">받는 업무</div>
@@ -73,8 +71,8 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
     <button id="nav-handover" onclick="setMainView('handover')" class="w-full px-3 py-2.5 rounded-xl hover:bg-[#F8F9FA] text-[#6B7684] flex items-center gap-2.5 text-[13px] font-medium"><span class="material-symbols-outlined text-[18px]">description</span>나의 업무</button>
     <div class="mx-3 my-3 border-t border-[#EEF0F3]"></div>
     <div id="management-nav" class="hidden"><div class="px-3 pt-2 pb-1 text-[10px] font-bold text-[#8B95A1]">관리자 · 팀장</div>
-    <button id="nav-manage" onclick="setMainView('manage')" class="w-full px-3 py-2.5 rounded-xl hover:bg-[#F8F9FA] text-[#6B7684] flex items-center gap-2.5 text-[13px] font-medium"><span class="material-symbols-outlined text-[18px]">assignment_ind</span>인수인계 관리</button>
-    <button id="nav-settings" onclick="setMainView('settings')" class="w-full px-3 py-2.5 rounded-xl hover:bg-[#F8F9FA] text-[#6B7684] flex items-center gap-2.5 text-[13px] font-medium"><span class="material-symbols-outlined text-[18px]">settings</span>Slack 연결 설정</button>
+    <button id="nav-manage" onclick="setMainView('manage')" class="w-full px-3 py-2.5 rounded-xl hover:bg-[#F8F9FA] text-[#6B7684] flex items-center gap-2.5 text-[13px] font-medium"><span class="material-symbols-outlined text-[18px]">assignment_ind</span>관리하기</button>
+
     <div class="mx-3 my-3 border-t border-[#EEF0F3]"></div>
     <button onclick="openNetwork()" class="w-full px-3 py-2.5 rounded-xl hover:bg-[#F8F9FA] text-[#6B7684] flex items-center gap-2.5 text-[13px] font-medium"><span class="material-symbols-outlined text-[18px]">account_tree</span>조직도</button></div>
     <button onclick="openAsk()" title="업무 Agent에게 질문하기" aria-label="업무 Agent에게 질문하기" class="w-full px-3 py-2.5 rounded-xl hover:bg-[#F8F9FA] text-[#6B7684] flex items-center gap-2.5 text-[13px] font-medium"><span class="material-symbols-outlined text-[18px]">smart_toy</span>질문하기 <span class="ml-auto rounded-full bg-[#F2F7FF] px-2 py-0.5 text-[10px] text-[#3182F6]">Agent</span></button>
@@ -95,9 +93,11 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
       <button onclick="openImport()" title="담당자 업무 가져오기" aria-label="담당자 업무 가져오기" class="w-9 h-9 rounded-xl border border-[#DDE3EA] bg-white text-[#4E5968] hover:bg-[#F8F9FA] flex items-center justify-center transition">
         <span class="material-symbols-outlined text-[19px]">search</span>
       </button>
-      <span class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#EAFBF4] text-[#008B5E] text-[11px] font-bold"><span class="material-symbols-outlined text-[14px]">key</span>YubiKey 인증됨</span>
+      <span class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#EAFBF4] text-[#008B5E] text-[11px] font-bold"><span class="material-symbols-outlined text-[14px]">key</span>시연 접속</span>
+      <div id="demo-admin-switch" class="flex items-center gap-2"><button type="button" id="admin-toggle" onclick="toggleAdminMode()" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold text-[#4E5968]">관리자 모드</button></div>
       <button onclick="openAsk()" title="업무 Agent에게 질문하기" aria-label="업무 Agent에게 질문하기" class="h-9 px-3 rounded-xl bg-[#191F28] text-white text-[12px] font-bold flex items-center gap-1.5"><span class="material-symbols-outlined text-[16px]">auto_awesome</span>질문하기 <span class="text-[10px] opacity-70">Agent</span></button>
     </div>
+    <div id="model-meta" class="absolute bottom-0 right-6 lg:right-8 translate-y-full text-[10px] text-[#8B95A1] pt-1 text-right" aria-live="polite">모델 학습일 · 조회 중</div>
   </header>
 
   <main class="max-w-[1320px] mx-auto px-5 lg:px-8 py-7">
@@ -174,17 +174,35 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
         </div>
       </section>
     </div>
-    <div id="manage-view" class="hidden space-y-5">
-      <section class="bg-white rounded-[22px] border border-[#EEF0F3] p-6"><h2 class="text-[22px] font-bold">인수인계 배정</h2><p class="mt-1 text-[13px] text-[#8B95A1]">팀장 또는 HR이 인계자·프로젝트·인수자를 선택해 배정해요.</p>
-        <div class="mt-5 grid sm:grid-cols-3 gap-4">
-          <label class="text-[12px] font-bold">인계자<select id="assign-from" class="mt-2 w-full h-11 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[13px]"><option>김지수</option><option>원이정</option><option>변선아</option></select></label>
-          <label class="text-[12px] font-bold">프로젝트<select id="assign-project" class="mt-2 w-full h-11 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[13px]"><option value="p1">월말 정산 · 3건</option><option value="p2">SAP 구매 · 3건</option><option value="p3">교육자료 · 2건</option></select></label>
-          <label class="text-[12px] font-bold">인수자<select id="assign-to" class="mt-2 w-full h-11 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[13px]"><option>원이정</option><option>변선아</option><option>김지수</option></select></label>
-        </div><button onclick="assignHandover()" class="mt-5 h-11 px-5 rounded-xl bg-[#3182F6] text-white text-[13px] font-bold">인수인계 배정</button>
-      </section>
-      <section class="bg-white rounded-[22px] border border-[#EEF0F3] p-6"><div class="flex items-center justify-between gap-3"><h2 class="text-[18px] font-bold">배정 목록</h2><span class="text-[11px] text-[#8B95A1]">분석 대기 → 분석 중 → 완료</span></div><div id="assignment-list" class="mt-4 space-y-3"></div></section>
-    </div>
-    <div id="settings-view" class="hidden space-y-5"><section class="bg-white rounded-[22px] border border-[#EEF0F3] p-6"><div class="flex items-start justify-between gap-3"><div><h2 class="text-[22px] font-bold">Slack 워크스페이스 연결</h2><p class="mt-1 text-[13px] text-[#8B95A1]">인수인계에 사용할 워크스페이스와 조회 범위를 설정하세요.</p></div><span class="px-2.5 py-1 rounded-full bg-[#F2F4F6] text-[#6B7684] text-[11px] font-bold">데모</span></div>
+         <div id="manage-view" class="hidden space-y-5">
+       <section class="bg-white rounded-[22px] border border-[#EEF0F3] p-6">
+         <h2 class="text-[22px] font-bold">관리하기</h2>
+         <p class="mt-1 text-[12px] text-[#8B95A1]">관리자 인증 후 Slack 수집과 인수인계 배정을 관리합니다. 기존 Task 담당자는 변경하지 않아요.</p>
+         <div class="mt-5 grid lg:grid-cols-2 gap-4">
+           <div class="rounded-[20px] border border-[#EEF0F3] p-5 space-y-3">
+             <h3 class="font-bold text-[16px]">Slack 연동</h3>
+             <p class="text-[12px] text-[#6B7684]">MCP 서버를 호출해 선택한 담당자의 최근 메시지를 수집합니다. 기존 DB는 변경하지 않아요.</p>
+             <label class="block text-[12px] font-bold">수집 대상<select id="admin-sync-person" class="mt-2 w-full rounded-xl border border-[#DDE3EA] px-3 h-11 bg-white text-[13px]"></select></label>
+             <label class="block text-[12px] font-bold">수집 기간<select id="admin-sync-days" class="mt-2 w-full rounded-xl border border-[#DDE3EA] px-3 h-11 bg-white text-[13px]"><option value="7">최근 7일</option><option value="14" selected>최근 14일</option><option value="30">최근 30일</option></select></label>
+             <button id="admin-sync-button" onclick="runAdminSync()" class="h-11 rounded-xl bg-[#191F28] px-4 text-white text-[13px] font-bold">Slack MCP 수집 실행</button>
+             <div id="admin-sync-result" class="text-[12px] text-[#6B7684]" aria-live="polite">수집 대기</div>
+           </div>
+           <div class="rounded-[20px] border border-[#EEF0F3] p-5 space-y-3">
+             <h3 class="font-bold text-[16px]">팀원 업무 배정</h3>
+             <p class="text-[12px] text-[#6B7684]">배정 이력을 별도 저장합니다. 분석된 원본 담당자와 그래프는 유지돼요.</p>
+             <label class="block text-[12px] font-bold">배정할 Task<select id="admin-task" class="mt-2 w-full rounded-xl border border-[#DDE3EA] px-3 h-11 bg-white text-[13px]"></select></label>
+             <label class="block text-[12px] font-bold">인수자<select id="admin-assignee" class="mt-2 w-full rounded-xl border border-[#DDE3EA] px-3 h-11 bg-white text-[13px]"></select></label>
+             <button id="admin-assign-button" onclick="createAdminAssignment()" class="h-11 rounded-xl bg-[#3182F6] px-4 text-white text-[13px] font-bold">업무 배정 저장</button>
+             <div id="admin-assign-result" class="text-[12px] text-[#6B7684]" aria-live="polite">배정 대기</div>
+           </div>
+         </div>
+       </section>
+       <section class="bg-white rounded-[22px] border border-[#EEF0F3] p-6">
+         <h3 class="font-bold text-[16px]">최근 배정 내역</h3>
+         <div id="admin-assignment-list" class="mt-3 space-y-2 text-[12px] text-[#6B7684]">불러오는 중</div>
+       </section>
+     </div>
+<div id="settings-view" class="hidden space-y-5"><section class="bg-white rounded-[22px] border border-[#EEF0F3] p-6"><div class="flex items-start justify-between gap-3"><div><h2 class="text-[22px] font-bold">Slack 워크스페이스 연결</h2><p class="mt-1 text-[13px] text-[#8B95A1]">인수인계에 사용할 워크스페이스와 조회 범위를 설정하세요.</p></div><span class="px-2.5 py-1 rounded-full bg-[#F2F4F6] text-[#6B7684] text-[11px] font-bold">데모</span></div>
       <div class="mt-5 max-w-[540px]"><label class="text-[12px] font-bold">워크스페이스 이름<input id="slack-workspace" value="Bizineer" maxlength="60" class="mt-2 w-full h-11 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[13px]"/></label><div class="mt-5 text-[12px] font-bold">조회 범위</div><div class="mt-2 space-y-3 text-[13px]"><label class="flex gap-2"><input type="checkbox" id="slack-channels" checked/>업무 채널·스레드</label><label class="flex gap-2"><input type="checkbox" id="slack-private"/>접근이 승인된 비공개 채널</label><label class="flex gap-2"><input type="checkbox" id="slack-dm"/>당사자가 승인한 관련 DM</label></div><p class="mt-4 text-[12px] text-[#8B95A1]">실제 로그인이나 메시지 조회 없이 연결 과정을 체험합니다.</p><div id="slack-setting-status" class="mt-4 text-[13px] font-bold"></div><button id="slack-connect-btn" onclick="connectSlackDemo()" class="mt-4 h-11 px-5 rounded-xl bg-[#191F28] text-white text-[13px] font-bold">Slack 연결 체험</button></div>
     </section></div>
     <div id="sender-preview-view" class="hidden space-y-5"></div>
@@ -1060,5 +1078,6 @@ setMainView=function(view){if(senderEditing){toast('수정을 저장하거나 �
 render();
 </script>
 <script src="/demo_adapter.js"></script>
+<script src="/admin_adapter.js"></script>
 </body>
 </html>
