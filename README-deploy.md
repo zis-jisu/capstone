@@ -6,7 +6,7 @@ Supabase mock 테이블을 `get_graph_snapshot()` RPC로 읽어 R-GAE를 학습�
 
 | Method | Path | 역할 |
 |---|---|---|
-| `POST` | `/v1/training` | 최신 Supabase 그래프를 받아 백그라운드 학습 시작 |
+| `POST` | `/v1/training` | 최신 Supabase 그래프로 학습하며 NDJSON 진행 로그 전송 |
 | `GET` | `/v1/training` | 학습 상태와 최신 성공 학습일 조회 |
 | `POST` | `/v1/priorities` | `person_id`의 미완료 Task 순위 반환 |
 | `GET` | `/health` | Railway health check |
@@ -20,7 +20,7 @@ curl -X POST "$MODEL_API_URL/v1/training" \
   -d '{"trigger":"manual"}'
 ```
 
-응답은 즉시 `202 Accepted`이며, 프론트는 `GET /v1/training`을 polling합니다.
+응답은 `202 Accepted`이며 연결을 유지한 채 NDJSON 진행 로그가 전송됩니다. 마지막 `completed` 또는 `failed` 줄까지 연결을 유지해야 합니다. 별도 화면의 상태 표시는 동시에 `GET /v1/training`을 polling할 수 있습니다.
 
 ### 우선순위 요청
 
@@ -81,7 +81,13 @@ Railway는 루트의 `Dockerfile`을 자동으로 사용합니다.
 
 API 서비스의 Start Command는 Dockerfile 기본값을 사용하고, Healthcheck Path는 `/health`로 설정합니다.
 
-### 매주 일요일 자동학습
+API 서비스는 Serverless를 켭니다. 학습 스트림이 20초마다 데이터를 보내 학습 중 컨테이너를 유지하고, 학습 완료 후 유휴 상태가 되면 Railway가 자동으로 다시 휴면시킵니다.
+
+### 선택 사항: 매주 일요일 자동학습
+
+현재 데모 배포에서는 Cron 서비스를 만들지 않습니다. 최초 학습은 Postman의 `POST /v1/training` 호출로 한 번만 확인합니다.
+
+실제 운영에서 자동학습이 필요해질 때만 아래 구성을 추가합니다.
 
 동일 GitHub 저장소로 Railway Cron 서비스를 하나 더 생성합니다.
 
@@ -94,7 +100,11 @@ API와 Cron 양쪽에 같은 Supabase 관련 Variables를 등록합니다. Railw
 
 Cron 작업은 학습을 마치고 자동 종료됩니다.
 
-## 프론트 연결
+## Postman 테스트
+
+현재 검증은 프론트 대신 Postman을 사용합니다. 요청 URL, Header, Body는 `POSTMAN.md`에 정리되어 있습니다.
+
+## 선택 사항: 프론트 연결
 
 브라우저에서 Railway API를 직접 호출하면 `MODEL_API_KEY`가 노출됩니다. Next.js 서버 Route Handler에서 Railway API를 호출하고, 브라우저는 Next.js의 `/api/...`만 호출하도록 구성합니다.
 
