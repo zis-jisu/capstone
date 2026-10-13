@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import logging
 import os
+import json
+import queue
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .config import Settings
@@ -40,7 +42,6 @@ class TrainingCoordinator:
     def __init__(self, settings: Settings, runtime: ModelRuntime):
         self.settings = settings
         self.runtime = runtime
-        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rgae-training")
         self.lock = threading.Lock()
         self.state: dict[str, Any] = {
             "status": "idle",
@@ -49,51 +50,41 @@ class TrainingCoordinator:
             "last_result": None,
         }
 
-    def start(self, trigger: str) -> bool:
+    def begin(self, trigger: str) -> bool:
         with self.lock:
             if self.state["status"] in {"queued", "running"}:
                 return False
             self.state = {
-                "status": "queued",
+                "status": "running",
                 "trigger": trigger,
                 "error": None,
                 "last_result": self.state.get("last_result"),
             }
+            return True
 
-        def work() -> None:
-            with self.lock:
-                self.state["status"] = "running"
-            try:
-                result = train_once(self.settings, self.runtime, trigger)
-                with self.lock:
-                    self.state = {
-                        "status": "completed",
-                        "trigger": trigger,
-                        "error": None,
-                        "last_result": result,
-                    }
-            except Exception as error:
-                logger.exception("training failed")
-                with self.lock:
-                    self.state = {
-                        "status": "failed",
-                        "trigger": trigger,
-                        "error": f"{type(error).__name__}: {error}",
-                        "last_result": self.state.get("last_result"),
-                    }
+    def complete(self, trigger: str, result: dict[str, Any]) -> None:
+        with self.lock:
+            self.state = {
+                "status": "completed",
+                "trigger": trigger,
+                "error": None,
+                "last_result": result,
+            }
 
-        self.executor.submit(work)
-        return True
+    def fail(self, trigger: str, error: Exception) -> None:
+        with self.lock:
+            self.state = {
+                "status": "failed",
+                "trigger": trigger,
+                "error": f"{type(error).__name__}: {error}",
+                "last_result": self.state.get("last_result"),
+            }
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
             state = dict(self.state)
         state.update(self.runtime.metadata())
         return state
-
-    def close(self) -> None:
-        self.executor.shutdown(wait=False, cancel_futures=False)
-
 
 def require_api_key(
     request: Request,
@@ -117,7 +108,6 @@ async def lifespan(app: FastAPI):
     app.state.runtime = runtime
     app.state.coordinator = coordinator
     yield
-    coordinator.close()
 
 
 app = FastAPI(
@@ -139,8 +129,18 @@ def health(request: Request):
 @app.get("/v1/training", dependencies=[Depends(require_api_key)])
 def training_status(request: Request):
     """Dashboard polling endpoint: status and latest successful training date."""
-    request.app.state.runtime.refresh_if_due()
-    return request.app.state.coordinator.snapshot()
+    refresh_error = None
+    try:
+        request.app.state.runtime.refresh_if_due()
+    except Exception as error:
+        # Status polling must still expose a failed training result even when
+        # the latest model object cannot be loaded from Storage.
+        logger.exception("latest model refresh failed during status polling")
+        refresh_error = f"{type(error).__name__}: {error}"
+    snapshot = request.app.state.coordinator.snapshot()
+    if refresh_error:
+        snapshot["model_refresh_error"] = refresh_error
+    return snapshot
 
 
 @app.post(
@@ -149,10 +149,65 @@ def training_status(request: Request):
     dependencies=[Depends(require_api_key)],
 )
 def start_training(request: Request, body: TrainingRequest):
-    """Fetch the latest Supabase RPC graph and train in the background."""
-    if not request.app.state.coordinator.start(body.trigger):
+    """Stream training progress so Railway keeps the serverless container awake."""
+    coordinator: TrainingCoordinator = request.app.state.coordinator
+    if not coordinator.begin(body.trigger):
         raise HTTPException(status.HTTP_409_CONFLICT, "training is already running")
-    return {"accepted": True, "status": "queued", "trigger": body.trigger}
+
+    events: queue.Queue[dict[str, Any]] = queue.Queue()
+
+    def progress(epoch: int, epochs: int, loss: float) -> None:
+        events.put(
+            {
+                "status": "running",
+                "trigger": body.trigger,
+                "epoch": epoch,
+                "epochs": epochs,
+                "loss": loss,
+            }
+        )
+
+    def work() -> None:
+        try:
+            result = train_once(
+                coordinator.settings,
+                coordinator.runtime,
+                body.trigger,
+                progress=progress,
+            )
+            coordinator.complete(body.trigger, result)
+            events.put(result)
+        except Exception as error:
+            logger.exception("training failed")
+            coordinator.fail(body.trigger, error)
+            events.put(
+                {
+                    "status": "failed",
+                    "trigger": body.trigger,
+                    "error": f"{type(error).__name__}: {error}",
+                }
+            )
+
+    threading.Thread(target=work, name="rgae-training", daemon=True).start()
+
+    def stream():
+        yield json.dumps(
+            {"accepted": True, "status": "running", "trigger": body.trigger}
+        ) + "\n"
+        while True:
+            try:
+                event = events.get(timeout=20)
+            except queue.Empty:
+                event = {"status": "running", "heartbeat": True}
+            yield json.dumps(event) + "\n"
+            if event.get("status") in {"completed", "failed"}:
+                break
+
+    return StreamingResponse(
+        stream(),
+        status_code=status.HTTP_202_ACCEPTED,
+        media_type="application/x-ndjson",
+    )
 
 
 @app.post("/v1/priorities", dependencies=[Depends(require_api_key)])
