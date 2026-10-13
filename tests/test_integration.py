@@ -172,24 +172,45 @@ class IntegrationTests(unittest.TestCase):
     def test_synthetic_identity_conflict(self):
         conflicts = identity_conflicts(self.bundle, {"persons": [{"person_id": "PERSON-01", "name": "김지수"}]})
         self.assertEqual(len(conflicts), 1)
-
-    def test_save_does_not_globally_delete_edges(self):
+    def test_save_preserves_existing_edges(self):
         class FakeStore(SupabaseStore):
             def __init__(self):
                 self.calls = []
+
             def request(self, table, **kwargs):
                 self.calls.append((table, kwargs))
                 return []
+
         old = copy.deepcopy(self.bundle)
         tid = old["tasks"][0]["task_id"]
+
         old["edges"].extend([
-            {"source_id": "Uold", "source_type": "Person", "relation": "OWNER", "target_id": tid, "target_type": "Task"},
-            {"source_id": "Uother", "source_type": "Person", "relation": "OWNER", "target_id": "TASK-other", "target_type": "Task"}])
+            {
+                "source_id": "Uold",
+                "source_type": "Person",
+                "relation": "OWNER",
+                "target_id": tid,
+                "target_type": "Task"
+            },
+            {
+                "source_id": "Uother",
+                "source_type": "Person",
+                "relation": "OWNER",
+                "target_id": "TASK-other",
+                "target_type": "Task"
+            }
+        ])
+
         store = FakeStore()
         store.save(self.bundle, old)
-        deletes = [kw for _, kw in store.calls if kw["method"] == "DELETE"]
-        self.assertEqual(len(deletes), 1)
-        self.assertEqual(deletes[0]["params"]["source_id"], "eq.Uold")
+
+        deletes = [
+            kw for _, kw in store.calls
+            if kw["method"] == "DELETE"
+        ]
+
+        # 부분 동기화 시 기존 엣지를 삭제하지 않는지 검증
+        self.assertEqual(len(deletes), 0)
 
     def test_digest_order_independent(self):
         reordered = copy.deepcopy(self.bundle)

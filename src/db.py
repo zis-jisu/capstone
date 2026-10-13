@@ -67,6 +67,22 @@ class SupabaseStore:
             self.request(table, method="POST", params={"on_conflict": TABLE_KEYS[table]},
                          rows=rows[start:start + 200])
 
+    def preflight_raw_message_schema(self):
+        """Fail closed unless the raw message schema has been reviewed.
+
+        Set SLACK_MESSAGES_SCHEMA_VERIFIED=1 only after confirming that
+        message_id, author_id, author_name, channel, conversation_id,
+        thread_id, conversation_type, slack_ts, parent_ts, timestamp,
+        text, reference_urls and raw_json exist, and that other required
+        columns have defaults or permit NULL.
+        """
+        if os.environ.get("SLACK_MESSAGES_SCHEMA_VERIFIED") != "1":
+            raise RuntimeError(
+                "Raw-message schema not confirmed. Review public.slack_messages "
+                "columns and NOT NULL constraints, then set "
+                "SLACK_MESSAGES_SCHEMA_VERIFIED=1 in a test environment."
+            )
+
     def save_messages(self, messages, people):
         """Upsert original Slack text without clearing existing task/work links.
 
@@ -114,17 +130,9 @@ class SupabaseStore:
         affected_works = {w["work_id"] for w in bundle["works"]}
         for table in ("persons", "works", "tasks", "events", "edges"):
             self.upsert(table, bundle[table])
-        for key, edge in old.items():
-            relation = edge["relation"]
-            owned = (relation == "HAS_EVENT" and (edge["source_id"] in affected_tasks or edge["target_id"] in affected_events)
-                     or relation == "HAS_TASK" and (edge["source_id"] in affected_works or edge["target_id"] in affected_tasks)
-                     or edge["source_type"] == "Person" and edge["target_type"] == "Task"
-                        and edge["target_id"] in affected_tasks
-                     or edge["source_type"] == "Person" and edge["target_type"] == "Event"
-                        and edge["target_id"] in affected_events)
-            if owned and key not in new:
-                self.request("edges", method="DELETE", params={
-                    "source_id": "eq." + key[0], "relation": "eq." + key[1], "target_id": "eq." + key[2]})
+        # Preserve existing edges. Partial extraction is not an authoritative
+        # deletion request; retirement requires a separate reviewed workflow.
+        pass
 
 
 def to_db(result, before=None):

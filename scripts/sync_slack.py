@@ -73,6 +73,7 @@ def main():
         if bundle != plan["bundle"]:
             raise ValueError("Plan bundle differs from its source result.")
         write(Path(args.apply_plan).with_suffix(".before.json"), before)
+        store.preflight_raw_message_schema()
         store.save(bundle, before)
         # Original Slack text is kept separately from Graph node/edge exports.
         # Upsert only selected fields, preserving existing work/task associations.
@@ -97,12 +98,11 @@ def main():
                         equal = actual_value == value
                     if not equal:
                         raise RuntimeError(f"Post-write value mismatch: {table}.{key}")
-        graph = export_graph(after)
-        graph_path = Path(args.apply_plan).with_suffix(".graph.json")
-        write(graph_path, graph)
+        from scripts.export_ml_rpc import fetch_graph
+        graph = fetch_graph()
         plan["applied"] = True
         write(args.apply_plan, plan)
-        print(f"Verified DB save. Graph: {graph_path}")
+        print(f"Verified DB save and ML RPC: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges")
         return
     if bool(args.input) == bool(args.result):
         ap.error("Specify exactly one of --input or --result")
