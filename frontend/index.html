@@ -904,17 +904,16 @@ const PERSONAL_WORKS_BY_ACTOR={
  '최민준':[{id:'WORK-00007',name:'딜러 고객 초청 시승 행사 성과 분석 및 후속 캠페인 선정'},{id:'WORK-00019',name:'월간 딜러 피드백 보고'}]
 };
 let personalWorkActor='원이정';
+let personalWorksLoaded=false;
 function setPersonalWorkActor(name){
  personalWorkActor=name;
- // Restore the original Won I-jeong dashboard until the user explicitly loads DB data.
- // Never substitute another employee's work as the initial personal dashboard.
- const initial=name==='원이정'?ORIGINAL_PERSONAL_WORKS:[];
- HANDOVER_WORKS.splice(0,HANDOVER_WORKS.length,...initial.map(w=>({...w,tasks:[...w.tasks]})));
+ personalWorksLoaded=false;
+ HANDOVER_WORKS.splice(0,HANDOVER_WORKS.length);
  const select=document.getElementById('handover-project-select');
- if(select)select.innerHTML=initial.map(w=>'<option value="'+w.id+'">'+escSvg(w.name)+'</option>').join('');
+ if(select)select.replaceChildren();
  handoverSelectionWork=null;
  const stamp=document.getElementById('handover-sync-time');
- if(stamp)stamp.textContent=name==='원이정'?'기존 나의 업무 · DB 조회 전':'불러오기 전';
+ if(stamp)stamp.textContent='불러오기 전';
  if(typeof renderMyWork==='function')renderMyWork();
 }
 async function loadPersonalWorksFromSupabase(){
@@ -935,7 +934,8 @@ async function loadPersonalWorksFromSupabase(){
    if(HANDOVER_WORKS.some(w=>w.id===previous))select.value=previous;
   }
   handoverSelectionWork=null;
-  if(stamp)stamp.textContent='업무 불러오기 완료 · 시연 데이터';
+  if(stamp)stamp.textContent='업무 불러오기 완료';
+  personalWorksLoaded=true;
   renderMyWork();
   return;
  }
@@ -971,7 +971,8 @@ async function loadPersonalWorksFromSupabase(){
   const select=document.getElementById('handover-project-select');
   if(select)select.innerHTML=nextWorks.map(w=>'<option value="'+w.id+'">'+escSvg(w.name)+'</option>').join('');
   handoverSelectionWork=null;
-  if(stamp)stamp.textContent='Supabase 조회 완료 · '+new Date(data.loaded_at||Date.now()).toLocaleString('ko-KR');
+  if(stamp)stamp.textContent='업무 불러오기 완료 · '+new Date(data.loaded_at||Date.now()).toLocaleString('ko-KR');
+  personalWorksLoaded=true;
   renderMyWork();
  }catch(err){
   // Never retain stale fixtures after a failed DB request.
@@ -979,6 +980,7 @@ async function loadPersonalWorksFromSupabase(){
   const select=document.getElementById('handover-project-select');
   if(select)select.replaceChildren();
   if(stamp)stamp.textContent='DB 조회 실패: '+err.message;
+  personalWorksLoaded=false;
   renderMyWork();
  }finally{
   if(btn){btn.disabled=false;btn.textContent='나의 업무 불러오기';}
@@ -1038,9 +1040,15 @@ function prepareMyWork(){
  document.getElementById('my-work-prepare').classList.remove('hidden');
 }
 function renderMyWork(){
+ if(!personalWorksLoaded){
+  document.getElementById('my-work-summary').replaceChildren();
+  document.getElementById('my-work-list').replaceChildren();
+  document.getElementById('handover-result').replaceChildren();
+  return;
+ }
  if(!HANDOVER_WORKS.length){
   document.getElementById('my-work-summary').innerHTML=[['참여 Work',0],['미완료 Task',0],['대기 Task',0],['인수인계 준비 완료',0]].map(([label,n])=>'<div class="rounded-2xl bg-[#F8F9FA] p-4"><div class="text-[11px] text-[#6B7684]">'+label+'</div><div class="mt-2 text-[24px] font-bold">'+n+'<span class="ml-1 text-[12px] font-medium text-[#8B95A1]">개</span></div></div>').join('');
-  document.getElementById('my-work-list').innerHTML='<div class="p-4 rounded-xl bg-[#F8F9FA] text-[13px] text-[#6B7684]">나의 업무 불러오기를 눌러 Supabase에서 조회하세요. 조회 결과가 0건이면 현재 참여 관계가 저장된 Work가 없는 것입니다.</div>';
+  document.getElementById('my-work-list').innerHTML='<div class="p-4 rounded-xl bg-[#F8F9FA] text-[13px] text-[#6B7684]">조회된 업무가 없습니다.</div>';
   document.getElementById('handover-result').innerHTML='<div class="p-8 text-center text-[#8B95A1] text-[14px]">선택된 Work가 없습니다.</div>';
   return;
  }
