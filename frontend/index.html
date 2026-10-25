@@ -54,7 +54,8 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
         <span class="text-[11px] font-bold text-[#00A46C] bg-[#EAFBF4] px-2 py-1 rounded-full">연결됨</span>
       </div>
     </div>
-    <button onclick="enterApp()" class="mt-6 w-full h-12 rounded-xl bg-[#3182F6] hover:bg-[#1B64DA] text-white font-bold text-[14px]">로그인하기</button>
+    <p id="login-error" role="alert" class="hidden mt-4 rounded-xl border border-[#FECACA] bg-[#FEF2F2] px-3 py-2 text-[12px] text-[#B91C1C]"></p>
+    <button id="login-submit" type="button" onclick="enterApp()" class="mt-6 w-full h-12 rounded-xl bg-[#3182F6] hover:bg-[#1B64DA] text-white font-bold text-[14px] disabled:opacity-60">로그인하기</button>
   </div>
 </div>
 
