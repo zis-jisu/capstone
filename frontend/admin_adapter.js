@@ -137,9 +137,16 @@
   function panel(title,body){
   let node=el('handover-demo-panel');
   if(!node){node=document.createElement('div');node.id='handover-demo-panel';node.className='fixed inset-0 z-[110] hidden items-center justify-center bg-black/40 p-4';document.body.appendChild(node);}
-  node.innerHTML='<section role="dialog" aria-modal="true" class="w-full max-w-[750px] max-h-[88vh] overflow-y-auto rounded-[24px] bg-white p-6 shadow-2xl"><header class="flex justify-between gap-3"><div><div class="text-[11px] text-[#3182F6] font-bold">시연 모드 · 실제 계정 인증 아님</div><h2 class="mt-2 text-[21px] font-bold">'+safe(title)+'</h2></div><button id="handover-demo-close" class="h-9 w-9 rounded-xl border" aria-label="닫기">×</button></header><div class="mt-5">'+body+'</div></section>';
+  node.innerHTML='<section role="dialog" aria-modal="true" class="w-full max-w-[750px] max-h-[88vh] overflow-y-auto rounded-[24px] bg-white p-6 shadow-2xl"><header class="flex justify-between gap-3"><div><div class="text-[11px] text-[#3182F6] font-bold">시연 모드</div><h2 class="mt-2 text-[21px] font-bold">'+safe(title)+'</h2></div><button id="handover-demo-close" class="h-9 w-9 rounded-xl border" aria-label="닫기">×</button></header><div class="mt-5">'+body+'</div></section>';
   node.classList.remove('hidden');node.classList.add('flex');
   el('handover-demo-close').onclick=closePanel;
+ }
+ function approvalBadge(status){
+  const labels={approved:'승인 완료',pending:'승인 대기',rejected:'반려'};
+  const colors={approved:'bg-[#E8F8F0] text-[#008B5E] border-[#B9E9D1]',
+                pending:'bg-[#FFF4DF] text-[#B76500] border-[#F6D9A5]',
+                rejected:'bg-[#FFF0F0] text-[#D44949] border-[#F6C9C9]'};
+  return '<span class="inline-flex shrink-0 items-center rounded-xl border px-3 py-1.5 text-[12px] font-bold '+(colors[status]||'bg-[#F2F4F6] text-[#6B7684] border-[#E5E8EB]')+'">'+safe(labels[status]||status||'상태 미확인')+'</span>';
  }
  function closePanel(){const n=el('handover-demo-panel');if(n){n.classList.add('hidden');n.classList.remove('flex');}}
  function message(s){if(typeof toast==='function')toast(s);else alert(s);}
@@ -174,7 +181,7 @@
   try{
    // Only the recipient's own incoming handovers. Never show the owner's sent approvals.
    const rows=(await load()).filter(r=>r.requesterId===personId);
-   panel('인수받은 업무',rows.length?rows.map(r=>'<div class="mb-3 rounded-2xl border border-[#E5E8EB] p-4"><div class="flex items-center justify-between gap-2"><b>'+safe(r.owner)+'님의 업무</b><span class="text-[12px]">'+({pending:'승인 대기',approved:'승인 완료',rejected:'반려'}[r.status]||r.status)+'</span></div><div class="mt-2 text-[13px]">'+safe(r.title)+'</div>'+(r.status==='approved'?'<button data-open="'+safe(r.id)+'" class="mt-3 rounded-xl bg-[#3182F6] px-4 py-2 text-[12px] font-bold text-white">이어받은 업무 보기</button>':'')+'</div>').join(''):'<div class="rounded-xl bg-[#F8F9FA] p-5 text-[13px]">아직 인수받은 업무가 없습니다.</div>');
+   panel('인수받은 업무',rows.length?rows.map(r=>'<div class="mb-3 rounded-2xl border border-[#E5E8EB] p-4"><div class="flex items-center justify-between gap-2"><b>'+safe(r.owner)+'님의 업무</b>'+approvalBadge(r.status)+'</div><div class="mt-2 text-[13px]">'+safe(r.title)+'</div>'+(r.status==='approved'?'<button data-open="'+safe(r.id)+'" class="mt-3 rounded-xl bg-[#3182F6] px-4 py-2 text-[12px] font-bold text-white">이어받은 업무 보기</button>':'')+'</div>').join(''):'<div class="rounded-xl bg-[#F8F9FA] p-5 text-[13px]">아직 인수받은 업무가 없습니다.</div>');
    el('handover-demo-panel').querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>viewWork(b.dataset.open));
   }catch(e){message(e.message)}
  }
@@ -199,9 +206,9 @@
   let all;try{all=(await load()).filter(r=>actor==='팀장'?!verifiedMode:r.sourceId===PERSON_IDS[actor]);}
   catch(e){return message(e.message)}
   const pending=all.filter(r=>r.status==='pending');
-  let body=pending.length?pending.map(r=>'<div class="mb-3 rounded-2xl border p-4"><div class="font-bold">'+safe(r.requester)+' → '+safe(r.owner)+'</div><div class="mt-2 text-[13px]">'+safe(r.title)+'</div><div class="mt-3 flex gap-2"><button data-verify="'+safe(r.id)+'" class="rounded-xl bg-[#3182F6] px-4 py-2 text-[12px] font-bold text-white">가상 YubiKey 승인</button><button data-reject="'+safe(r.id)+'" class="rounded-xl border px-4 py-2 text-[12px]">반려</button></div></div>').join(''):'<div class="rounded-xl bg-[#F8F9FA] p-5 text-[13px]">대기 중인 인수인계 요청이 없습니다.</div>';
+  let body=pending.length?pending.map(r=>'<div class="mb-3 rounded-2xl border p-4"><div class="font-bold">'+safe(r.requester)+' → '+safe(r.owner)+'</div><div class="mt-2 text-[13px]">'+safe(r.title)+'</div><div class="mt-3 flex gap-2"><button data-verify="'+safe(r.id)+'" class="rounded-xl bg-[#3182F6] px-4 py-2 text-[12px] font-bold text-white">유비키 인증</button><button data-reject="'+safe(r.id)+'" class="rounded-xl border px-4 py-2 text-[12px]">반려</button></div></div>').join(''):'<div class="rounded-xl bg-[#F8F9FA] p-5 text-[13px]">대기 중인 인수인계 요청이 없습니다.</div>';
   const done=all.filter(r=>r.status!=='pending');
-  if(done.length)body+='<h3 class="mt-5 mb-2 font-bold">처리 이력</h3>'+done.map(r=>'<div class="border-b py-2 text-[12px]">'+safe(r.requester)+' → '+safe(r.owner)+' · '+(r.status==='approved'?'승인':'반려')+' · '+safe(r.approvedBy)+'</div>').join('');
+  if(done.length)body+='<h3 class="mt-5 mb-2 font-bold">처리 이력</h3>'+done.map(r=>'<div class="flex items-center justify-between gap-3 border-b py-3 text-[12px]"><span>'+safe(r.requester)+' → '+safe(r.owner)+' · '+safe(r.approvedBy)+'</span>'+approvalBadge(r.status)+'</div>').join('');
   panel(actor==='팀장'?'팀장 인수인계 승인함 (UI 시연 전용)':'김지수 인수인계 승인함',body);
   el('handover-demo-panel').querySelectorAll('[data-verify]').forEach(b=>b.onclick=()=>verify(b.dataset.verify));
   el('handover-demo-panel').querySelectorAll('[data-reject]').forEach(b=>b.onclick=()=>decide(b.dataset.reject,'rejected'));
@@ -210,7 +217,7 @@
   let r;try{r=(await load()).find(x=>x.id===id&&x.status==='pending');}
   catch(e){return message(e.message)}
   if(!r||(actor==='팀장'?verifiedMode:PERSON_IDS[actor]!==r.sourceId))return message('승인할 수 없는 요청입니다.');
-  panel(actor==='팀장'?'팀장 승인 시연 (DB 미반영)':'가상 YubiKey 승인','<div class="rounded-2xl bg-[#F2F7FF] p-6 text-center"><div class="text-[38px]">🔑</div><h3 class="mt-3 text-[17px] font-bold">보안키 터치 시연</h3><p class="mt-2 text-[12px] text-[#6B7684]">실제 YubiKey 또는 WebAuthn 인증이 아닙니다.</p><button id="handover-confirm" class="mt-5 rounded-xl bg-[#3182F6] px-5 py-3 text-white font-bold">가상 보안키 터치 · 승인</button></div>');
+  panel(actor==='팀장'?'팀장 승인 시연 (DB 미반영)':'유비키 인증','<div class="rounded-2xl bg-[#F2F7FF] p-6 text-center"><div class="text-[38px]">🔑</div><h3 class="mt-3 text-[17px] font-bold">보안키 터치 시연</h3><p class="mt-2 text-[12px] text-[#6B7684]">보안키 확인 절차를 시연하는 화면입니다.</p><button id="handover-confirm" class="mt-5 rounded-xl bg-[#3182F6] px-5 py-3 text-white font-bold">인증 확인 · 승인</button></div>');
   el('handover-confirm').onclick=()=>decide(id,'approved');
  }
  async function decide(id,status){
