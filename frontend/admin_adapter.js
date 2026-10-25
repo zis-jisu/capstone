@@ -336,58 +336,76 @@
   if(avatar)avatar.textContent=actor.slice(0,1);
  }
  const previousEnterApp=enterApp;
- let authConfigReady=false;
- fetch('/api/demo/auth/config',{credentials:'same-origin',cache:'no-store'})
-  .then(response=>response.json())
-  .then(config=>{
-    verifiedMode=!!config.verified_mode;
-    authConfigReady=true;
-    const fields=el('verified-login-fields');
-    if(fields)fields.classList.add('hidden');
-    if(verifiedMode){
-      const selector=el('handover-login-account');
-      if(selector)selector.parentElement?.classList.add('hidden');
-      const button=el('login-screen')?.querySelector('button[onclick="enterApp()"]');
-      if(button)button.textContent='Slack으로 로그인';
-    }
-  }).catch(()=>{authConfigReady=false;message('인증 설정 조회에 실패했습니다.');});
+ let authConfigPromise;
+ function showLoginError(detail){
+  const notice=el('login-error');
+  if(notice){notice.textContent=detail;notice.classList.remove('hidden');}
+  else alert(detail);
+ }
+ async function checkLoginConfig(){
+  const res=await fetch('/api/demo/auth/config',{credentials:'same-origin',cache:'no-store'});
+  if(!res.ok)throw new Error('로그인 설정 조회 실패 (HTTP '+res.status+')');
+  const config=await res.json();
+  verifiedMode=!!config.verified_mode;
+  const fields=el('verified-login-fields');
+  if(fields)fields.classList.add('hidden');
+  const selector=el('handover-login-account');
+  if(selector)selector.parentElement?.classList.toggle('hidden',verifiedMode);
+  const btn=el('login-submit');
+  if(btn)btn.textContent=verifiedMode?'Slack으로 로그인':'로그인하기';
+  return config;
+ }
+ authConfigPromise=checkLoginConfig().catch(error=>{
+   // The next click retries. Do not silently swallow a failed config lookup.
+   showLoginError('로그인 설정 확인 실패: '+error.message);
+   throw error;
+ });
+ // Consume startup failure; actual click retries independently.
+ authConfigPromise.catch(()=>{});
  enterApp=async function(){
-  if(!authConfigReady)return message('로그인 설정을 확인할 수 없습니다. 페이지를 새로고침하세요.');
-  if(verifiedMode){
-    let identity;
-    try{
+  const loginBtn=el('login-submit'),error=el('login-error');
+  if(loginBtn)loginBtn.disabled=true;
+  if(error)error.classList.add('hidden');
+  try{
+    await checkLoginConfig();
+    if(verifiedMode){
       const res=await fetch('/api/demo/auth/me',{credentials:'same-origin',cache:'no-store'});
       if(!res.ok)throw new Error('Slack 로그인 확인 실패 (HTTP '+res.status+')');
-      identity=await res.json();
-    }catch(error){message(error.message);return;}
-    if(!identity.authenticated){
-      window.location.assign('/api/demo/auth/slack/start');
-      return;
+      const identity=await res.json();
+      if(!identity.authenticated){
+        window.location.assign('/api/demo/auth/slack/start');
+        return;
+      }
+      actor=Object.keys(PERSON_IDS).find(name=>PERSON_IDS[name]===identity.person_id);
+      if(!actor)throw new Error('등록되지 않은 Slack 사용자입니다.');
+      if(typeof window.loadVerifiedDemoData!=='function')throw new Error('업무 데이터 모듈이 로드되지 않았습니다.');
+      await window.loadVerifiedDemoData('');
+    }else{
+      const selection=el('handover-login-account')?.value||'원이정';
+      actor=ACCOUNT.includes(selection)?selection:'원이정';
     }
-    actor=Object.keys(PERSON_IDS).find(name=>PERSON_IDS[name]===identity.person_id);
-    if(!actor){message('등록되지 않은 Slack 사용자입니다.');return;}
-    try{await window.loadVerifiedDemoData('');}
-    catch(error){message('업무 조회 권한 확인 실패: '+error.message);return;}
-  }else{
-    const selection=loginSelect?.value||'원이정';
-    actor=ACCOUNT.includes(selection)?selection:'원이정';
+    updateSidebarIdentity();
+    showGate(actor==='원이정'?'checking':'approved');
+    previousEnterApp();
+    if(typeof window.activateManagerWorkspace==='function')
+      await window.activateManagerWorkspace(actor==='팀장'&&!verifiedMode);
+    if(actor==='팀장'&&!verifiedMode){
+      setMainView('manage');
+      await inbox();
+    }else if(actor==='김지수'){
+      setMainView('briefing');
+      await inbox();
+    }else if(actor==='원이정'){
+      await refreshGate();
+    }
+    const role=el('handover-login-role');
+    if(role)role.textContent=actor==='팀장'?'팀장':'일반사원';
+  }catch(err){
+    console.error('Login error',err);
+    showLoginError('로그인 실패: '+(err?.message||'알 수 없는 오류'));
+  }finally{
+    if(loginBtn)loginBtn.disabled=false;
   }
-  updateSidebarIdentity();
-  showGate(actor==='원이정'?'checking':'approved');
-  previousEnterApp();
-  if(typeof window.activateManagerWorkspace==='function'){
-    await window.activateManagerWorkspace(actor==='팀장'&&!verifiedMode);
-  }
-  if(actor==='팀장'&&!verifiedMode){
-    if(typeof setMainView==='function')setMainView('manage');
-    await inbox();
-  }else if(actor==='김지수'){
-    if(typeof setMainView==='function')setMainView('briefing');
-    await inbox();
-  }else if(actor==='원이정'){
-    await refreshGate();
-  }
-  const role=el('handover-login-role');if(role)role.textContent=actor==='팀장'?'팀장':'일반사원';
  };
  const firstOpenTask=Object.keys(TASKS).find(id=>TASKS[id]?.status!=='완료');
  if(firstOpenTask&&TASKS[state.task]?.status==='완료')state.task=firstOpenTask;
