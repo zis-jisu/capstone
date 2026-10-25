@@ -99,7 +99,7 @@
  }
  async function load(){return (await api()).requests.map(r=>({
   id:r.request_id,requester:'원이정',owner:'김지수',workId:r.work_id,
-  title:WORK_TITLE,status:r.status,approvedBy:r.approved_by===PERSON_IDS['팀장']?'팀장':r.approved_by===PERSON_IDS['김지수']?'김지수':'-',
+  title:WORK_TITLE,status:r.status,approvedBy:r.approved_by===PERSON_IDS['김지수']?'김지수':'-',
   requesterId:r.requester_id,sourceId:r.source_person_id
  }));}
   function panel(title,body){
@@ -156,7 +156,7 @@
   async function verify(id){
   let r;try{r=(await load()).find(x=>x.id===id&&x.status==='pending');}
   catch(e){return message(e.message)}
-  if(!r||(actor!=='팀장'&&PERSON_IDS[actor]!==r.sourceId))return message('승인할 수 없는 요청입니다.');
+  if(!r||PERSON_IDS[actor]!==r.sourceId)return message('승인할 수 없는 요청입니다.');
   panel('가상 YubiKey 승인','<div class="rounded-2xl bg-[#F2F7FF] p-6 text-center"><div class="text-[38px]">🔑</div><h3 class="mt-3 text-[17px] font-bold">보안키 터치 시연</h3><p class="mt-2 text-[12px] text-[#6B7684]">실제 YubiKey 또는 WebAuthn 인증이 아닙니다.</p><button id="handover-confirm" class="mt-5 rounded-xl bg-[#3182F6] px-5 py-3 text-white font-bold">가상 보안키 터치 · 승인</button></div>');
   el('handover-confirm').onclick=()=>decide(id,'approved');
  }
@@ -193,7 +193,7 @@
   const name=el('import-action-title'),summary=el('import-selection-summary'),btn=el('import-action-btn'),slack=el('slack-access-panel');
   if(slack)slack.classList.add('hidden');
   if(importState.step===1){name.textContent='인수인계 승인 요청';btn.textContent='인수인계 요청 보내기';btn.onclick=requestImportApproval;}
-  else {name.textContent='승인 대기';summary.textContent='김지수 또는 팀장이 승인해야 업무를 이어받을 수 있어요.';btn.textContent='요청 상태 확인';btn.onclick=()=>{closeImport();received()};}
+  else {name.textContent='승인 대기';summary.textContent='김지수님이 승인해야 업무를 이어받을 수 있어요.';btn.textContent='요청 상태 확인';btn.onclick=()=>{closeImport();received()};}
  };
  requestImportApproval=async function(){
   if(actor!=='원이정'||importState.person!=='김지수')return message('이번 시연은 원이정 → 김지수 요청 기준입니다.');
@@ -203,7 +203,7 @@
    await api('','POST',{requester_id:PERSON_IDS['원이정'],source_person_id:PERSON_IDS['김지수'],work_id:WORK_ID});
    importState.step=2;importState.approved=false;renderImportFlow();
    showGate('pending');
-   message('Supabase에 인수인계 요청을 저장했습니다. 김지수 또는 팀장 UI에서 승인하세요.');
+   message('Supabase에 인수인계 요청을 저장했습니다. 김지수 UI에서 승인하세요.');
   }catch(e){message(e.message)}
   finally{if(btn)btn.disabled=false}
  };
@@ -244,7 +244,7 @@
  if(loginSelect){
   loginSelect.addEventListener('change',()=>{
    const label=el('handover-login-role');
-   if(label)label.textContent=loginSelect.value==='팀장'?'팀장':'일반사원';
+   if(label)label.textContent='일반사원';
   });
  }
 
@@ -270,7 +270,7 @@
    const configs={
     checking:{icon:'sync',tag:'상태 확인 중',title:'인수인계 상태 확인 중',description:'김지수님의 업무 승인 기록을 확인하고 있습니다.',action:'요청 내역 확인'},
     empty:{icon:'inventory_2',tag:'요청 전',title:'아직 이어받은 업무가 없어요',description:'같은 팀의 김지수님을 선택하고 Work 단위로 인수인계를 요청해 주세요.',action:'김지수 업무 요청하기'},
-    pending:{icon:'hourglass_top',tag:'승인 대기',title:'김지수님의 승인을 기다리고 있어요',description:'김지수님 또는 팀장이 승인하면 이곳에 업무 흐름과 Slack 근거가 나타납니다.',action:'요청 상태 확인'},
+    pending:{icon:'hourglass_top',tag:'승인 대기',title:'김지수님의 승인을 기다리고 있어요',description:'김지수님이 승인하면 이곳에 업무 흐름과 Slack 근거가 나타납니다.',action:'요청 상태 확인'},
     rejected:{icon:'block',tag:'요청 반려',title:'인수인계 요청이 반려됐어요',description:'업무는 표시되지 않습니다. 필요한 경우 김지수님에게 다시 요청해 주세요.',action:'다시 요청하기'},
     error:{icon:'wifi_off',tag:'확인 실패',title:'승인 상태를 불러오지 못했어요',description:'승인 여부를 확인할 수 없어 업무를 숨겼습니다. 다시 조회해 주세요.',action:'요청 내역 확인'}
    };
@@ -304,10 +304,12 @@
   }catch(e){showGate('error');message('승인 상태를 확인하지 못했습니다. '+e.message);}
  }
  const previousEnterApp=enterApp;
+ let authConfigReady=false;
  fetch('/api/demo/auth/config',{credentials:'same-origin',cache:'no-store'})
   .then(response=>response.json())
   .then(config=>{
     verifiedMode=!!config.verified_mode;
+    authConfigReady=true;
     const fields=el('verified-login-fields');
     if(fields)fields.classList.add('hidden');
     if(verifiedMode){
@@ -316,8 +318,9 @@
       const button=el('login-screen')?.querySelector('button[onclick="enterApp()"]');
       if(button)button.textContent='Slack으로 로그인';
     }
-  }).catch(()=>{message('인증 설정 조회에 실패했습니다.');});
+  }).catch(()=>{authConfigReady=false;message('인증 설정 조회에 실패했습니다.');});
  enterApp=async function(){
+  if(!authConfigReady)return message('로그인 설정을 확인할 수 없습니다. 페이지를 새로고침하세요.');
   if(verifiedMode){
     let identity;
     try{
