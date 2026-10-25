@@ -276,6 +276,47 @@ def _handover_db(method='GET', params=None, payload=None):
     except urllib.error.URLError:
         raise HTTPException(502, 'Handover database unreachable') from None
 
+@app.get('/api/demo/auth/config')
+def demo_auth_config(_=Depends(demo_auth)):
+    return {'verified_mode': secure_handover_enabled()}
+
+class VerifiedLogin(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=256)
+    selected_person: str = Field(min_length=1, max_length=40)
+
+@app.post('/api/demo/auth/login')
+def demo_verified_login(body: VerifiedLogin, _=Depends(demo_auth)):
+    if not secure_handover_enabled():
+        raise HTTPException(403, 'Verified login is not enabled')
+    store = SupabaseStore()
+    credentials = json.dumps({'email': body.email, 'password': body.password}).encode('utf-8')
+    request = urllib.request.Request(store.url + '/auth/v1/token?grant_type=password',
+        data=credentials, headers={'apikey': store.key, 'Content-Type': 'application/json'},
+        method='POST')
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            tokens = json.load(response)
+    except urllib.error.HTTPError:
+        raise HTTPException(401, 'Invalid account credentials') from None
+    except urllib.error.URLError:
+        raise HTTPException(503, 'Authentication service unreachable') from None
+    token = tokens.get('access_token')
+    if not token:
+        raise HTTPException(401, 'Login session missing')
+    actor = verified_actor(x_handover_access_token=token)
+    selected = {
+        '원이정': WON_ID,
+        '김지수': JISOO_ID,
+        '팀장': MARKETING_MANAGER_DEMO_ID,
+    }.get(body.selected_person)
+    if selected is None or not (
+        (body.selected_person == '팀장' and actor['role'] == 'manager')
+        or (body.selected_person != '팀장' and actor['person_id'] == selected)
+    ):
+        raise HTTPException(403, 'Account does not match selected role')
+    return {'access_token': token, 'person_id': actor['person_id'], 'role': actor['role']}
+
 @app.get('/api/demo/handover-requests')
 def demo_handover_list(_=Depends(demo_auth), actor=Depends(verified_actor)):
     rows = _handover_db(params={'select': '*', 'order': 'created_at.desc', 'limit': '100'})
