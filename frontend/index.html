@@ -456,6 +456,679 @@ function renderTaskList(){
 }
 function selectTask(id){state.task=id;state.detailTab='timeline';renderTaskList();}
 function setDetailTab(tab){state.detailTab=tab;renderDetail();}
+// UI-only nominal ending: never alter Slack originals, Event evidence or persisted fields.
+function nominalizeTimelineText(value){
+ const input=String(value??'').trim().replace(/[.!。]+\s*$/u,'');
+ if(!input)return '기록 없음';
+ // Keep person/time prefix (e.g. "김지수 · ") intact.
+ const sep=input.lastIndexOf(' · ');
+ const prefix=sep>=0?input.slice(0,sep+3):'';
+ let action=sep>=0?input.slice(sep+3):input;
+ const endings=[
+  [/진행하고\s*있습니다$/u,'진행 중'],[/진행하고\s*있다$/u,'진행 중'],
+  [/확인하고\s*있습니다$/u,'확인 중'],[/확인하고\s*있다$/u,'확인 중'],
+  [/작업하고\s*있습니다$/u,'작업 중'],[/작업하고\s*있다$/u,'작업 중'],
+  [/대기하고\s*있습니다$/u,'대기 중'],[/대기하고\s*있다$/u,'대기 중'],
+  [/진행\s*중입니다$/u,'진행 중'],[/확인\s*중입니다$/u,'확인 중'],
+  [/할\s*예정(?:입니다|이다)$/u,'예정'],[/예정(?:입니다|이다)$/u,'예정'],
+  [/필요(?:합니다|하다)$/u,'필요'],
+  [/해야\s*(?:합니다|한다)$/u,'필요'],
+  [/해\s*주세요$/u,'요청'],[/해주세요$/u,'요청'],
+  [/하기로\s*(?:했습니다|했다|합니다|한다)$/u,'하기로 결정'],
+  [/되었(?:습니다|다)$/u,'완료'],[/됐(?:습니다|다)$/u,'완료']
+ ];
+ for(const [pattern,replacement] of endings){
+  if(pattern.test(action)){action=action.replace(pattern,replacement);return prefix+action.trim();}
+ }
+ // Convert action verbs to their noun stems when the terminal phrase is known.
+ const stems='작업|확인|검토|완료|진행|전달|반영|공유|요청|제출|준비|수정|작성|처리|정리|배포|수집|취합|검증|확정|발송|점검|적용|대조|보완|교체|업로드|보고|갱신|회신|협의|기록|분석|등록|정산|수신|집계|추적|선정|반출|승인|접수|게시|확보|반납|취소|변경|계획|검수|연결|설치|테스트|발행|추출|수행|통합';
+ const verbs=new RegExp('('+stems+')(?:했습니다|하였습니다|했어요|했음|했다|합니다|한다|하다|하고 있음|하는 중|해요|함)
+ const past=t.history.map((x,i)=>({kind:'past',label:'기록 '+(i+1),text:x}));
+ const current={kind:'current',label:'현재 · '+t.status,text:t.next};
+ const next=t.after.map((x,i)=>({kind:'next',label:'다음 '+(i+1),text:x}));
+ return [...past,current,...next];
+}
+const FILES={
+ t1:[{name:'법인카드_사용내역.xlsx',location:'공유 폴더 · 월말정산',icon:'table_view'},{name:'법인카드 증빙자료.pdf',location:'공유 폴더 · 증빙자료',icon:'picture_as_pdf'}],
+ t2:[{name:'외주_계약비용_정리.xlsx',location:'공유 폴더 · 외주계약',icon:'table_view'},{name:'외주 계약서.pdf',location:'공유 폴더 · 계약서',icon:'picture_as_pdf'}],
+ t3:[{name:'월말정산_보고서_초안.xlsx',location:'김지수 작업 폴더 · 위치 확인 필요',icon:'table_view'},{name:'월말정산 보고서 양식.xlsx',location:'공유 폴더 · 양식',icon:'description'}],
+ t4:[{name:'MIGO 처리내역.pdf',location:'SAP 구매 · 처리내역',icon:'picture_as_pdf'}],
+ t5:[{name:'PO 제출서류.pdf',location:'SAP 구매 · 제출자료',icon:'picture_as_pdf'}],
+ t6:[{name:'구매 승인 요청.pdf',location:'SAP 구매 · 승인자료',icon:'picture_as_pdf'}],
+ t7:[{name:'교육자료_수정본.pptx',location:'교육자료 · 작업본',icon:'slideshow'}],
+ t8:[{name:'교육자료_검수본.pdf',location:'교육자료 · 검수자료',icon:'picture_as_pdf'}]
+};
+function relatedFiles(taskId){return FILES[taskId]||[];}
+function renderOverview(t){
+  return `<div class="space-y-5">
+    <div class="rounded-[20px] bg-[#F2F7FF] p-5 border border-[#D9E9FF]">
+      <div class="text-[12px] font-bold text-[#1B64DA]">지금 해야 할 일</div>
+      <div class="mt-2 text-[20px] font-bold leading-snug">${t.next}</div>
+    </div>
+    <div>
+      <div class="text-[13px] font-bold">업무 흐름</div>
+      <div class="mt-3 flex items-center gap-2 overflow-x-auto pb-1">${t.flow.map((x,i)=>`${i?'<div class="flow-line"></div>':''}<div class="flow-node ${i===0?'active':''} shrink-0 min-w-[120px] rounded-2xl border border-[#DDE3EA] px-4 py-3 bg-white"><div class="text-[11px] text-[#8B95A1]">${i===0?'현재':i===t.flow.length-1?'마지막':'다음'}</div><div class="text-[13px] font-bold mt-1">${x}</div></div>`).join('')}</div>
+    </div>
+    <details class="rounded-2xl bg-[#F8F9FA] border border-[#EEF0F3] p-4 group">
+      <summary class="cursor-pointer list-none flex items-center justify-between text-[13px] font-bold">추가 정보 <span class="material-symbols-outlined text-[#8B95A1] group-open:rotate-180 transition-transform">expand_more</span></summary>
+      <div class="mt-4 grid sm:grid-cols-2 gap-3 text-[12px]">
+        <div><div class="text-[#8B95A1]">막힌 이유</div><div class="font-semibold mt-1">${t.blocker}</div></div>
+        <div><div class="text-[#8B95A1]">검수·승인</div><div class="font-semibold mt-1">${t.approval}</div></div>
+        <div class="sm:col-span-2"><div class="text-[#8B95A1]">주의사항</div><div class="font-semibold mt-1">${t.caution}</div></div>
+      </div>
+    </details>
+  </div>`;
+}
+function slackEvidenceForTask(taskId=state.task){return SLACK_EVIDENCE[taskId]||[];}
+function evidenceBreakdown(taskId=state.task){
+  const list=slackEvidenceForTask(taskId); const ch=list.filter(x=>x.type==='channel').length; const dm=list.filter(x=>x.type==='dm').length;
+  return {total:list.length,channel:ch,dm};
+}
+function evidencePill(taskId=state.task){
+  const b=evidenceBreakdown(taskId); if(!b.total)return '';
+  const detail=[b.channel?`채널 ${b.channel}`:'',b.dm?`DM ${b.dm}`:''].filter(Boolean).join(' · ');
+  return `<button type="button" onclick="openEvidence('${taskId}')" class="h-8 px-2.5 rounded-full bg-[#F2F4F6] text-[#8B95A1] hover:text-[#4E5968] hover:bg-[#E9ECEF] text-[10px] font-bold flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">forum</span>${detail}</button>`;
+}
+function renderTimeline(t){
+  return `<div class="relative pl-7">
+    <div class="absolute left-[8px] top-2 bottom-2 w-px bg-[#DDE3EA]"></div>
+    ${timelineItems(t).map((item,idx)=>`<div class="relative pb-5 last:pb-0"><span class="absolute -left-[23px] top-1 w-3 h-3 rounded-full ${item.kind==='current'?'bg-[#3182F6] ring-4 ring-[#E8F3FF]':item.kind==='next'?'bg-white border-2 border-[#B0B8C1]':'bg-[#B8C0CC]'}"></span><div class="text-[11px] font-semibold ${item.kind==='current'?'text-[#3182F6]':'text-[#8B95A1]'}">${item.label}</div><div class="mt-1 text-[13px] ${item.kind==='next'?'text-[#6B7684]':'text-[#333D4B]'}">${nominalizeTimelineText(item.text)}</div>${item.kind==='current'?`<div class="mt-2 -ml-5">${evidencePill(state.task)}</div>`:''}</div>`).join('')}
+  </div>`;
+}
+function openEvidence(taskId=state.task){
+  const t=TASKS[taskId]; const list=slackEvidenceForTask(taskId); const modal=document.getElementById('evidence-modal');
+  document.getElementById('evidence-title').textContent=(t?.name||'업무')+' · Slack 근거';
+  document.getElementById('evidence-list').innerHTML=list.map((e,i)=>`<div class="rounded-2xl border border-[#EEF0F3] bg-white p-4"><div class="flex flex-wrap items-center justify-between gap-2"><div class="flex items-center gap-2"><span class="px-2 py-1 rounded-full ${e.type==='dm'?'bg-[#FFF6E5] text-[#9A6700]':'bg-[#F2F4F6] text-[#6B7684]'} text-[10px] font-bold">${e.type==='dm'?'개인 DM':'채널'}</span><span class="text-[11px] font-bold text-[#4E5968]">${e.source}</span></div><span class="text-[10px] text-[#A0A8B3]">${e.time}</span></div><div class="mt-3 text-[13px] font-semibold text-[#333D4B]">${e.summary}</div><div class="mt-2 text-[11px] text-[#8B95A1]">작성자 · ${e.author}</div><div class="mt-3 flex items-center justify-between gap-3"><div class="text-[10px] text-[#A0A8B3]">${e.type==='dm'?'업무 사실만 요약 · 원문 권한 별도':'업무 근거 메시지'}</div><button type="button" onclick="openSlackOriginal('${taskId}',${i})" class="h-8 px-2.5 rounded-xl bg-[#F8F9FA] border border-[#E5E8EB] text-[10px] font-bold text-[#6B7684]">원문으로 이동 ↗</button></div></div>`).join('')||'<div class="text-[12px] text-[#8B95A1]">연결된 Slack 근거가 없습니다.</div>';
+  modal.classList.remove('hidden');modal.classList.add('flex');
+}
+function closeEvidence(){const m=document.getElementById('evidence-modal');m.classList.add('hidden');m.classList.remove('flex');}
+function openSlackOriginal(taskId,index){
+  const e=slackEvidenceForTask(taskId)[index];
+  if(!e)return;
+  if(e.type==='dm') toast('개인 DM 원문은 별도 열람 권한 확인 후 Slack permalink로 이동합니다.');
+  else toast('실서비스에서는 해당 Slack 메시지 permalink로 이동합니다.');
+}
+function renderFiles(t){
+  const files=relatedFiles(state.task);
+  return `<div class="space-y-2">${files.map(f=>`<a href="#" onclick="event.preventDefault();toast('데모 화면에서는 파일 열기를 지원하지 않습니다.')" class="flex items-center justify-between rounded-2xl bg-[#F8F9FA] border border-[#EEF0F3] px-4 py-3 hover:border-[#BFDBFE] hover:bg-[#F2F7FF] transition"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-xl bg-white border border-[#E5E8EB] flex items-center justify-center"><span class="material-symbols-outlined text-[18px] text-[#6B7684]">${f.icon}</span></div><div><div class="text-[13px] font-bold">${f.name}</div><div class="text-[11px] text-[#8B95A1] mt-0.5">${f.location}</div></div></div><span class="material-symbols-outlined text-[17px] text-[#B0B8C1]">open_in_new</span></a>`).join('')}</div>`;
+}
+function escSvg(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function shortText(v,n=16){v=String(v??'');return v.length>n?v.slice(0,n-1)+'…':v;}
+function personMeta(name){return {...(DEFAULT_ORG[name]||{}),...(orgState.people[name]||{})};}
+function nameFromText(text){
+  const names=[...new Set([...Object.keys(DEFAULT_ORG),...Object.keys(orgState.people)])];
+  return names.find(n=>String(text||'').includes(n))||null;
+}
+function taskTokenMatch(a,b){
+  const toks=x=>String(x||'').replace(/[^가-힣A-Za-z0-9 ]/g,' ').split(/\s+/).filter(x=>x.length>=2);
+  const A=toks(a),B=new Set(toks(b));
+  return A.some(x=>B.has(x))||String(a||'').includes(String(b||''))||String(b||'').includes(String(a||''));
+}
+function rrRelationsForTask(t){
+  return orgState.rr.filter(r=>taskTokenMatch(r.task||r.responsibility||'',t.name)).slice(0,3);
+}
+function renderPeopleGraph(t){
+  const assignment=assignmentForTask(Object.keys(TASKS).find(id=>TASKS[id]===t));
+  const graphOwner=assignment?.from||t.owner, receiver=assignment?.to||'원이정';
+  const base=t.people.filter(p=>p!==graphOwner && p!==receiver).map(name=>({name,label:'협업',source:'업무'}));
+  const rr=rrRelationsForTask(t).filter(r=>r.name&&r.name!==graphOwner&&r.name!==receiver).map(r=>({name:r.name,label:r.role||'R&R',source:'R&R'}));
+  const related=[];
+  [...base,...rr].forEach(x=>{if(!related.some(y=>y.name===x.name))related.push(x)});
+  const approvalName=nameFromText(t.approval);
+  if(approvalName&&approvalName!==graphOwner&&approvalName!==receiver&&!related.some(x=>x.name===approvalName))related.push({name:approvalName,label:'검수·승인',source:'업무'});
+  const shown=related.slice(0,3);
+  const successor=t.depends&&t.depends.length?t.depends[0]:null;
+  const node=(x,y,w,h,title,meta,kind='person')=>`<g class="graph-node ${kind}"><rect x="${x-w/2}" y="${y-h/2}" width="${w}" height="${h}" rx="16"></rect><text class="title" x="${x}" y="${y-3}" text-anchor="middle">${escSvg(shortText(title,18))}</text><text class="meta" x="${x}" y="${y+15}" text-anchor="middle">${escSvg(shortText(meta,25))}</text></g>`;
+  const line=(x1,y1,x2,y2,label,cls='')=>`<g><path class="graph-edge ${cls}" marker-end="url(#arrow)" d="M ${x1} ${y1} L ${x2} ${y2}"></path><rect x="${(x1+x2)/2-28}" y="${(y1+y2)/2-10}" width="56" height="18" rx="9" fill="#fff" opacity=".94"></rect><text class="graph-edge-label" x="${(x1+x2)/2}" y="${(y1+y2)/2+3}" text-anchor="middle">${escSvg(label)}</text></g>`;
+  const ownerMeta=personMeta(graphOwner); const meMeta=personMeta(receiver);
+  let svg=`<svg viewBox="0 0 760 350" role="img" aria-label="${escSvg(t.name)} 업무 관계 그래프"><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto"><polygon points="0 0, 8 3.5, 0 7" fill="#9AA5B1"></polygon></marker></defs>`;
+  svg+=line(190,180,300,180,'담당','primary');
+  svg+=line(460,180,570,180,'인수인계','primary');
+  shown.forEach((r,i)=>{const xs=[260,380,500][i]; const cls=r.source==='R&R'?'rr':''; svg+=line(xs,92,380,145,r.label,cls);});
+  if(successor)svg+=line(380,215,380,280,'후속','');
+  svg+=node(110,180,150,64,graphOwner,[ownerMeta.team,ownerMeta.title].filter(Boolean).join(' · ')||'기존 담당자');
+  svg+=node(380,180,170,70,t.name,'선택한 세부 업무','task');
+  svg+=node(650,180,150,64,receiver,[meMeta.team,meMeta.title].filter(Boolean).join(' · ')||'인수자','me');
+  shown.forEach((r,i)=>{const xs=[260,380,500][i]; const m=personMeta(r.name); svg+=node(xs,60,145,56,r.name,[m.team,m.title].filter(Boolean).join(' · ')||r.label);});
+  if(successor)svg+=node(380,310,170,56,successor,'후속 업무','task');
+  svg+='</svg>';
+  const sync=[]; if(orgState.orgLoaded)sync.push('조직도'); if(orgState.rrLoaded)sync.push('R&R');
+  return `<div class="relationship-graph-wrap overflow-x-auto">${svg}</div>
+    <div class="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-[#8B95A1]">
+      <span class="inline-flex items-center gap-1"><span class="w-5 h-px bg-[#6B8AFD]"></span>업무 연결</span>
+      <span class="inline-flex items-center gap-1"><span class="w-5 border-t border-dashed border-[#62B79F]"></span>R&amp;R 연결</span>
+      <span id="graph-demo-status">${graphStorageMessage}</span>
+      ${sync.length?`<span class="ml-auto px-2 py-1 rounded-full bg-[#EAFBF4] text-[#008B5E] font-bold">${sync.join(' + ')} 연동됨</span>`:''}
+    </div>`;
+}
+function renderDetail(){
+ const t=currentTask();
+ const el=document.getElementById('task-detail');
+ if(!el)return;
+ if(!t){
+   el.innerHTML='<div class="bg-white rounded-[22px] border border-[#EEF0F3] p-10 text-center text-[13px] text-[#8B95A1]">왼쪽에서 업무를 선택하세요.</div>';
+   return;
+ }
+ const tabs=[
+   {id:'timeline',label:'진행 타임라인',icon:'timeline'},
+   {id:'files',label:'관련 자료',icon:'folder_open'},
+   {id:'people',label:'업무 관계',icon:'hub'}
+ ];
+ const tabContent={
+   timeline:`<div class="detail-panel-scroll pr-1">${renderTimeline(t)}</div>`,
+   files:`<div class="detail-panel-scroll pr-1">${renderFiles(t)}</div>`,
+   people:`<div class="detail-panel-scroll pr-1">
+     ${renderPeopleGraph(t)}
+     <div class="mt-4 flex items-center justify-between gap-3">
+       <div class="text-[11px] text-[#8B95A1]">선택한 세부 업무와 직접 연결된 관계만 보여줘요.</div>
+       <button onclick="openNetwork()" class="h-9 px-3.5 shrink-0 rounded-xl border border-[#D9E9FF] bg-[#F2F7FF] text-[#1B64DA] text-[11px] font-bold">전체 조직도</button>
+     </div>
+   </div>`
+ };
+ el.innerHTML=`<div class="bg-white rounded-[22px] border border-[#EEF0F3] overflow-hidden shadow-[0_1px_2px_rgba(0,0,0,.02)]">
+   <div class="p-6 border-b border-[#F2F4F6]">
+     <div class="flex flex-wrap items-start justify-between gap-4">
+       <div>
+         <div class="flex items-center gap-2"><span class="text-[12px] font-bold px-2.5 py-1 rounded-full ${riskBadge(t.risk)}">우선순위 ${t.risk == null ? '미산정' : t.risk}</span><span class="text-[12px] text-[#8B95A1]">${t.status}</span></div>
+         <h2 class="mt-3 text-[26px] font-bold tracking-tight">${t.name}</h2>
+       </div>
+       <div class="text-right"><div class="text-[11px] text-[#8B95A1]">마감</div><div class="text-[18px] font-bold mt-0.5 flex items-center gap-1"><span class="material-symbols-outlined text-[18px]">schedule</span>${t.deadline}</div></div>
+     </div>
+
+     <div class="mt-5 grid lg:grid-cols-[1.5fr_.8fr] gap-3">
+       <div class="rounded-[20px] bg-[#F2F7FF] p-5 border border-[#D9E9FF]">
+         <div class="text-[12px] font-bold text-[#1B64DA] flex items-center gap-1.5"><span class="material-symbols-outlined text-[17px]">arrow_forward</span>지금 해야 할 일</div>
+         <div class="mt-2 text-[19px] font-bold leading-snug">${t.next}</div>
+       </div>
+       <div class="rounded-[20px] bg-[#F8F9FA] p-5 border border-[#EEF0F3]">
+         <div class="text-[11px] font-bold text-[#6B7684]">막힌 이유</div>
+         <div class="mt-2 text-[13px] font-semibold leading-relaxed">${t.blocker}</div>
+       </div>
+     </div>
+
+     <div class="mt-5">
+       <div class="text-[12px] font-bold text-[#6B7684] mb-3">다음 흐름</div>
+       <div class="flex items-center gap-2 overflow-x-auto pb-1">${t.flow.map((x,i)=>`${i?'<div class="flow-line"></div>':''}<div class="flow-node ${i===0?'active':''} shrink-0 min-w-[118px] rounded-2xl border border-[#DDE3EA] px-4 py-3 bg-white"><div class="text-[10px] text-[#8B95A1]">${i===0?'현재':i===t.flow.length-1?'마지막':'다음'}</div><div class="text-[12px] font-bold mt-1">${x}</div></div>`).join('')}</div>
+     </div>
+   </div>
+
+   <div class="p-5">
+     <div class="flex gap-2 overflow-x-auto pb-1 items-center">
+       ${tabs.map(tb=>`<button onclick="setDetailTab('${tb.id}')" class="detail-tab-btn ${state.detailTab===tb.id?'active':''} h-10 shrink-0 px-3.5 rounded-xl border border-[#DDE3EA] bg-white text-[#6B7684] text-[12px] font-bold flex items-center gap-1.5"><span class="material-symbols-outlined text-[16px]">${tb.icon}</span>${tb.label}</button>`).join('')}
+     </div>
+     <div class="mt-5 min-h-[250px]">${tabContent[state.detailTab]||tabContent.timeline}</div>
+   </div>
+ </div>`;
+}
+
+const SLACK_EVIDENCE={
+ t1:[
+   {type:'channel',source:'#경영지원',time:'오늘 09:12',author:'김지수',summary:'법인카드 사용내역 최종 파일을 오전 중 전달받기로 함',original:'법인카드 사용내역은 오전 중 최종본 전달받기로 했습니다.'},
+   {type:'dm',source:'DM · 김지수 ↔ 변선아',time:'어제 16:40',author:'변선아',summary:'최종본 전달 예정이라고 공유',original:'80% 정리했고 내일 오전 최종본 보내드릴게요.'}
+ ],
+ t2:[{type:'channel',source:'#외주계약',time:'오늘 10:05',author:'김지수',summary:'외주 계약 비용 공유 여부 확인 필요',original:'비용 정리본 공유 여부만 확인하면 됩니다.'}],
+ t3:[{type:'channel',source:'#경영지원',time:'오늘 10:20',author:'김지수',summary:'선행 자료 수신 후 월말 보고서 작성 예정',original:'자료 들어오면 바로 월말 보고서 작성 시작하겠습니다.'},{type:'dm',source:'DM · 김지수 ↔ 변선아',time:'오늘 10:28',author:'김지수',summary:'법인카드 자료 수신 대기',original:'법인카드 최종본 오면 바로 반영할게요.'}],
+ t4:[{type:'channel',source:'#sap-purchase',time:'오늘 09:45',author:'김지수',summary:'MIGO 처리 완료 여부 확인 필요',original:'MIGO 처리 여부 확인 부탁드립니다.'}],
+ t5:[{type:'channel',source:'#sap-purchase',time:'오늘 10:10',author:'김지수',summary:'MIGO 완료 후 PO 제출 예정',original:'MIGO 완료 확인되면 PO 제출하겠습니다.'},{type:'dm',source:'DM · 김지수 ↔ 구매팀',time:'오늘 10:12',author:'구매팀',summary:'PO 제출 전에 MIGO 상태 확인 요청',original:'MIGO 상태 먼저 확인해주세요.'}],
+ t6:[{type:'channel',source:'#sap-purchase',time:'오늘 10:30',author:'김지수',summary:'구매팀 승인 요청 발송',original:'구매 승인 요청드렸습니다.'}],
+ t7:[{type:'channel',source:'#교육자료',time:'어제 15:20',author:'김지수',summary:'화면 캡처 교체 필요',original:'최신 화면으로 캡처만 교체하면 됩니다.'}],
+ t8:[{type:'channel',source:'#교육자료',time:'오늘 11:00',author:'김지수',summary:'교육자료 최종 검수 요청',original:'수정본 최종 검수 부탁드립니다.'}]
+};
+
+const IMPORT_DATA={
+ '김지수':[
+   {project:'월말 정산',tasks:['법인카드 내역','외주 계약 비용','월말 정산 보고서']},
+   {project:'SAP 구매',tasks:['MIGO 처리','PO 제출','구매 승인 확인']}
+ ],
+ '홍길동':[
+   {project:'외주 계약 관리',tasks:['계약서 검토','비용 정산 확인']},
+   {project:'교육자료',tasks:['교육자료 검수']}
+ ],
+ '변선아':[
+   {project:'월말 정산',tasks:['법인카드 내역 정리','증빙자료 취합']}
+ ],
+ '이혜령':[
+   {project:'팀 운영',tasks:['월말 보고 검수','팀 일정 승인']}
+ ],
+ '이재영':[
+   {project:'데이터 운영',tasks:['지표 업데이트','대시보드 검수']}
+ ]
+};
+let importState={person:null,selected:new Set(),step:1,approved:false,slackConnected:false};
+
+function openImport(){
+ importState.step=1;importState.approved=false;importState.slackConnected=false;
+ document.getElementById('import-modal').classList.remove('hidden');
+ document.getElementById('import-modal').classList.add('flex');
+ renderImportPeople();renderImportFlow();
+}
+function closeImport(){document.getElementById('import-modal').classList.add('hidden');document.getElementById('import-modal').classList.remove('flex')}
+function renderImportPeople(){
+ const q=(document.getElementById('person-search')?.value||'').trim();
+ const people=PEOPLE.filter(p=>!q||p.includes(q));
+ const el=document.getElementById('import-people'); if(!el)return;
+ el.innerHTML=people.map(p=>`<button onclick="selectImportPerson('${p}')" class="w-full rounded-2xl border ${importState.person===p?'border-[#3182F6] bg-[#F2F7FF]':'border-[#EEF0F3] bg-white'} p-3 flex items-center gap-3 text-left"><div class="w-9 h-9 rounded-full bg-[#E8F3FF] text-[#3182F6] flex items-center justify-center font-bold text-[12px]">${p[0]}</div><div><div class="text-[13px] font-bold">${p}</div><div class="text-[11px] text-[#8B95A1] mt-0.5">업무 담당자</div></div></button>`).join('')||'<div class="text-[12px] text-[#8B95A1] p-3">검색 결과가 없습니다.</div>';
+}
+function selectImportPerson(p){importState.person=p;importState.selected=new Set();importState.step=1;importState.approved=false;importState.slackConnected=false;renderImportPeople();renderImportTasks();renderImportFlow();}
+function importWorkKeys(group){return group.tasks.map(task=>group.project+'::'+task);}
+function importSelectedWorkCount(){return (IMPORT_DATA[importState.person]||[]).filter(g=>importWorkKeys(g).every(k=>importState.selected.has(k))).length;}
+function toggleImportWork(index){
+ const group=(IMPORT_DATA[importState.person]||[])[index];if(!group)return;
+ const keys=importWorkKeys(group),all=keys.every(k=>importState.selected.has(k));
+ keys.forEach(k=>all?importState.selected.delete(k):importState.selected.add(k));renderImportTasks();
+}
+function renderImportTasks(){
+ const el=document.getElementById('import-tasks'),label=document.getElementById('import-person-label'),allBtn=document.getElementById('import-all-btn');
+ if(!importState.person){el.innerHTML='<div class="h-[190px] flex items-center justify-center text-[12px] text-[#8B95A1]">왼쪽에서 담당자를 선택하세요.</div>';allBtn.classList.add('hidden');return;}
+ label.textContent=importState.person+'님의 업무';allBtn.classList.remove('hidden');
+ const groups=IMPORT_DATA[importState.person]||[];
+ el.innerHTML='<div class="px-1 mb-3 text-[11px] text-[#8B95A1]">Work를 선택하면 해당 업무의 세부 Task가 함께 포함돼요.</div><div class="space-y-2">'+groups.map((g,i)=>{
+ const on=importWorkKeys(g).every(k=>importState.selected.has(k));
+ return `<label class="flex items-center gap-3 rounded-2xl border ${on?'border-[#BFD4FF] bg-[#F2F7FF]':'border-[#E5E8EB] bg-white'} px-4 py-4 cursor-pointer"><input type="checkbox" ${on?'checked':''} onchange="toggleImportWork(${i})" class="w-4 h-4 accent-[#3182F6]"/><div class="min-w-0 flex-1"><div class="text-[14px] font-bold">${escSvg(g.project)}</div><div class="mt-1 text-[11px] text-[#8B95A1]">세부 Task ${g.tasks.length}건 포함</div></div><span class="px-2 py-1 rounded-full bg-[#F2F4F6] text-[10px] font-bold text-[#6B7684]">Work</span></label>`;
+ }).join('')+'</div>';updateImportSummary();
+}
+function toggleImportTask(key){if(importState.selected.has(key))importState.selected.delete(key);else importState.selected.add(key);renderImportTasks();}
+function toggleAllImportTasks(){
+ if(!importState.person)return; const all=[];(IMPORT_DATA[importState.person]||[]).forEach(g=>g.tasks.forEach(t=>all.push(g.project+'::'+t)));
+ const allSelected=all.length&&all.every(k=>importState.selected.has(k)); importState.selected=new Set(allSelected?[]:all); renderImportTasks();
+}
+function updateImportSummary(){
+ const n=importSelectedWorkCount(); const el=document.getElementById('import-selection-summary'); const btn=document.getElementById('import-all-btn');
+ if(el && importState.step===1)el.textContent=n?`${importState.person}님의 Work ${n}건을 선택했어요.`:'업무를 선택하면 승인 요청을 보낼 수 있어요.';
+ if(btn){const total=(IMPORT_DATA[importState.person]||[]).length;btn.textContent=n===total&&total?'전체 해제':'전체 선택';}
+}
+function renderImportFlow(){
+ const steps=[...document.querySelectorAll('#import-steps [data-step]')];
+ steps.forEach(el=>{const n=Number(el.dataset.step),active=n===importState.step,done=n<importState.step;el.className=`rounded-xl border px-3 py-2.5 ${active?'bg-[#F2F7FF] border-[#D9E9FF]':done?'bg-[#EAFBF4] border-[#C7F0E2]':'bg-[#F8F9FA] border-[#EEF0F3]'}`;const a=el.querySelector('div:first-child'),b=el.querySelector('div:last-child');if(a)a.className=`text-[10px] font-bold ${active?'text-[#3182F6]':done?'text-[#008B5E]':'text-[#8B95A1]'}`;if(b)b.className=`mt-0.5 text-[11px] font-bold ${active?'text-[#191F28]':done?'text-[#008B5E]':'text-[#6B7684]'}`;});
+ const selectArea=document.getElementById('import-select-area'), slackPanel=document.getElementById('slack-access-panel'), title=document.getElementById('import-action-title'), sum=document.getElementById('import-selection-summary'), btn=document.getElementById('import-action-btn');
+ selectArea.classList.toggle('opacity-60',importState.step>1); selectArea.classList.toggle('pointer-events-none',importState.step>1);
+ slackPanel.classList.toggle('hidden',importState.step<3);
+ if(importState.step===1){title.textContent='YubiKey 승인 요청';sum.textContent=importState.selected.size?`${importState.person}님의 Work ${importSelectedWorkCount()}건을 선택했어요.`:'업무를 선택하면 승인 요청을 보낼 수 있어요.';btn.textContent='선택 업무 승인 요청';btn.onclick=requestImportApproval;btn.className='h-10 px-4 rounded-xl bg-[#3182F6] text-white text-[12px] font-bold';}
+ else if(importState.step===2){title.textContent='YubiKey 승인 완료';sum.textContent=`${importState.person}님이 선택 업무 인수인계를 승인했어요.`;btn.textContent='Slack 연결 확인';btn.onclick=connectImportSlack;btn.className='h-10 px-4 rounded-xl bg-[#3182F6] text-white text-[12px] font-bold';}
+ else if(importState.step===3){title.textContent='Slack 권한 확인';sum.textContent='승인된 사용자의 Slack 접근 범위를 확인합니다.';btn.textContent='Slack 연결';btn.onclick=connectImportSlack;btn.className='h-10 px-4 rounded-xl bg-[#191F28] text-white text-[12px] font-bold';}
+ else {title.textContent='업무 관련 Slack 분석 준비 완료';sum.textContent='선택 업무와 관련된 채널·스레드·DM의 변경사항을 실시간으로 반영합니다.';btn.textContent='업무 가져오기';btn.onclick=finishImport;btn.className='h-10 px-4 rounded-xl bg-[#3182F6] text-white text-[12px] font-bold';}
+}
+function requestImportApproval(){
+ if(!importState.person)return toast('담당자를 먼저 선택하세요.');
+ if(!importState.selected.size)return toast('가져올 업무를 선택하세요.');
+ importState.step=2;importState.approved=true;renderImportFlow();if(deliverLatestSender())return;toast(`${importState.person}님의 YubiKey 승인 완료 상태를 반영했습니다.`);
+}
+function connectImportSlack(){
+ if(!importState.approved)return toast('먼저 YubiKey 승인이 필요합니다.');
+ if(importState.step===2){importState.step=3;renderImportFlow();return;}
+ importState.slackConnected=true;importState.step=4;renderImportFlow();toast('Slack OAuth 권한 범위를 확인했습니다.');
+}
+function finishImport(){
+ if(!importState.slackConnected)return toast('Slack 연결 확인이 필요합니다.');
+ const n=importSelectedWorkCount(),p=importState.person;closeImport();toast(`${p}님의 선택 Work ${n}건과 포함된 세부 Task의 Slack 근거를 가져옵니다.`);
+}
+function normKey(k){return String(k||'').toLowerCase().replace(/[\s_()&.]/g,'');}
+function pick(row,aliases){
+  const entries=Object.entries(row||{}); const wanted=aliases.map(normKey);
+  for(const [k,v] of entries){if(wanted.includes(normKey(k))&&String(v??'').trim())return String(v).trim();}
+  return '';
+}
+function rowsToOrg(rows){
+  const out={};
+  rows.forEach(r=>{
+    const name=pick(r,['이름','성명','구성원','담당자','name']); if(!name)return;
+    out[name]={team:pick(r,['팀','부서','소속','department','team']),title:pick(r,['직급','직책','역할','role','position','title']),role:pick(r,['담당업무','주요책임','책임','r&r','rr','responsibility'])};
+  });
+  return out;
+}
+function rowsToRR(rows){
+  const out=[];
+  rows.forEach(r=>{
+    const name=pick(r,['이름','성명','구성원','담당자','name']); if(!name)return;
+    const role=pick(r,['역할','직책','직급','role','position']);
+    const responsibility=pick(r,['담당업무','업무','주요책임','책임','r&r','rr','responsibility','task']);
+    const project=pick(r,['프로젝트','상위업무','project']);
+    const text=[project,responsibility].filter(Boolean).join(' · ');
+    if(text)out.push({name,role,task:text,responsibility});
+  });
+  return out;
+}
+async function excelRows(file){
+  if(!window.XLSX)throw new Error('Excel 파서 로딩 실패');
+  const wb=XLSX.read(await file.arrayBuffer(),{type:'array'}); let all=[];
+  wb.SheetNames.forEach(n=>{all=all.concat(XLSX.utils.sheet_to_json(wb.Sheets[n],{defval:''}));});
+  return all;
+}
+async function pdfLines(file){
+  if(!window.pdfjsLib)throw new Error('PDF 파서 로딩 실패');
+  const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise; const lines=[];
+  for(let p=1;p<=pdf.numPages;p++){
+    const page=await pdf.getPage(p); const c=await page.getTextContent(); const groups={};
+    c.items.forEach(it=>{const y=Math.round(it.transform[5]/3)*3;(groups[y]||(groups[y]=[])).push(it)});
+    Object.keys(groups).map(Number).sort((a,b)=>b-a).forEach(y=>{const txt=groups[y].sort((a,b)=>a.transform[4]-b.transform[4]).map(x=>x.str).join(' ').replace(/\s+/g,' ').trim();if(txt)lines.push(txt)});
+  }
+  return lines;
+}
+function pdfRowsFromLines(lines){
+  const rows=[]; const start=Math.max(0,lines.findIndex(x=>/구성원|이름|성명/.test(x)));
+  const generic=new Set(['구성원','역할','주요 책임','주요 협업 대상','조직도','팀장','담당자']);
+  for(let i=start;i<lines.length;i++){
+    const name=lines[i].trim(); if(!/^[가-힣]{2,4}$/.test(name)||generic.has(name))continue;
+    const role=(lines[i+1]||'').trim(); const responsibility=(lines[i+2]||'').trim(); const collab=(lines[i+3]||'').trim();
+    if(!role||/^[가-힣]{2,4}$/.test(role))continue;
+    rows.push({'구성원':name,'역할':role,'주요 책임':responsibility,'주요 협업 대상':collab});
+    i+=3;
+  }
+  return rows;
+}
+function inferTeamFromPdf(lines){return (lines.find(x=>/^[가-힣A-Za-z0-9· ]+팀(?:\s|$)/.test(x)&&!/팀 전체/.test(x))||'').replace(/\s*조직도.*$/,'').trim();}
+function renderOrgSyncStatus(){
+  const oc=document.getElementById('org-sync-count'),rc=document.getElementById('rr-sync-count');
+  if(oc)oc.textContent=orgState.orgLoaded?`${Object.keys(orgState.people).length}명 연동 · ${orgState.orgFile}`:'아직 등록되지 않음';
+  if(rc)rc.textContent=orgState.rrLoaded?`${orgState.rr.length}개 역할 연동 · ${orgState.rrFile}`:'아직 등록되지 않음';
+  const op=document.getElementById('org-preview');
+  if(op){const people=Object.entries(orgState.people);op.innerHTML=people.length?`<div class="rounded-2xl border border-[#EEF0F3] p-4"><div class="text-[12px] font-bold">인식된 구성원</div><div class="mt-3 flex flex-wrap gap-2">${people.slice(0,10).map(([n,m])=>`<span class="px-2.5 py-1.5 rounded-xl bg-[#F8F9FA] border border-[#EEF0F3] text-[11px]"><b>${n}</b>${m.title?' · '+m.title:''}${m.team?' · '+m.team:''}</span>`).join('')}</div></div>`:'';}
+  const rp=document.getElementById('rr-preview');
+  if(rp){rp.innerHTML=orgState.rr.length?`<div class="rounded-2xl border border-[#EEF0F3] p-4"><div class="text-[12px] font-bold">인식된 R&amp;R</div><div class="mt-2 space-y-1.5">${orgState.rr.slice(0,6).map(r=>`<div class="text-[11px] text-[#4E5968]"><b>${r.name}</b> · ${r.role||'역할 미상'} · ${shortText(r.task,42)}</div>`).join('')}</div></div>`:'';}
+}
+async function handleOrgFile(input,labelId,kind){
+ const label=document.getElementById(labelId); const file=input.files&&input.files[0]; if(!label)return;
+ if(!file){label.textContent='파일을 선택하세요';return;}
+ label.textContent='분석 중 · '+file.name;
+ try{
+   const ext=(file.name.split('.').pop()||'').toLowerCase(); let rows=[],lines=[];
+   if(['xlsx','xls'].includes(ext))rows=await excelRows(file);
+   else if(ext==='pdf'||file.type==='application/pdf'){lines=await pdfLines(file);rows=pdfRowsFromLines(lines);}
+   else throw new Error('PDF 또는 Excel 파일만 지원합니다.');
+   if(kind==='org'){
+     const people=rowsToOrg(rows); const team=lines.length?inferTeamFromPdf(lines):'';
+     Object.values(people).forEach(m=>{if(!m.team&&team)m.team=team});
+     orgState.people=people; orgState.orgLoaded=Object.keys(people).length>0; orgState.orgFile=file.name;
+     const rrFound=rowsToRR(rows); if(rrFound.length&&!orgState.rrLoaded){orgState.rr=rrFound;orgState.rrLoaded=true;orgState.rrFile=file.name+' 내 R&R';}
+     if(!orgState.orgLoaded)throw new Error('구성원 이름을 찾지 못했습니다. Excel 열 이름 또는 텍스트형 PDF를 확인하세요.');
+     label.textContent=file.name+' · 연동 완료'; toast(`${Object.keys(people).length}명의 조직 정보를 연동했습니다.`);
+   }else{
+     const rr=rowsToRR(rows); if(!rr.length)throw new Error('R&R 항목을 찾지 못했습니다. 이름과 담당업무/주요책임 열을 확인하세요.');
+     orgState.rr=rr; orgState.rrLoaded=true; orgState.rrFile=file.name; label.textContent=file.name+' · 연동 완료'; toast(`${rr.length}개의 R&R을 업무 관계에 연동했습니다.`);
+   }
+   saveGraphDemo(); renderOrgSyncStatus(); if(state.detailTab==='people')renderDetail();
+ }catch(e){label.textContent=file.name+' · 연동 실패';toast(e.message||'파일을 읽지 못했습니다.');}
+}
+
+function openNetwork(){
+ if(!isManagementRole())return toast('조직도 등록은 관리자 · 팀장 메뉴에서 이용하세요.');
+ document.getElementById('network-modal').classList.remove('hidden');
+ document.getElementById('network-modal').classList.add('flex');
+ renderOrgSyncStatus();
+}
+function closeNetwork(){document.getElementById('network-modal').classList.add('hidden');document.getElementById('network-modal').classList.remove('flex')}
+
+function openAsk(){document.getElementById('ask-modal').classList.remove('hidden');document.getElementById('ask-modal').classList.add('flex');document.getElementById('chat-box').innerHTML='<div class="text-[11px] font-bold text-[#3182F6]">업무 Agent · 데모</div><div class="mt-2">현재 업무의 다음 할 일, 마감, 막힌 이유를 물어보세요.</div>';document.getElementById('ask-input').focus();}
+function closeAsk(){document.getElementById('ask-modal').classList.add('hidden');document.getElementById('ask-modal').classList.remove('flex')}
+function agentCurrentTask(){
+ if(!document.getElementById('sender-preview-view').classList.contains('hidden')&&senderDraft)return senderDraft.tasks.find(t=>t.id===senderTaskId)||senderDraft.tasks[0];
+ if(mainView==='handover'&&senderDraft)return senderDraft.tasks[0];
+ return currentTask();
+}
+function fakeAsk(){
+ const input=document.getElementById('ask-input'),q=input.value.trim();if(!q)return;
+ const t=agentCurrentTask();if(!t)return toast('먼저 업무를 선택하세요.');
+ let answer=/마감|기한|언제/.test(q)?'마감은 '+t.deadline+'입니다.':/막|이유|주의|차단/.test(q)?'막힌 이유 · 주의사항: '+(t.blocker||'등록된 내용이 없습니다.'):/상태|진행/.test(q)?'현재 상태는 '+t.status+'입니다.':'가장 먼저 '+t.next+'을 확인하세요. 현재 상태는 '+t.status+'이며, 마감은 '+t.deadline+'입니다.';
+ const evidence=t.evidence||(t.history?.length?'진행 타임라인 '+t.history.length+'건':'현재 업무 상세 정보');
+ const box=document.getElementById('chat-box');box.innerHTML+=`<div class="mt-4 text-[#191F28] font-medium">Q. ${escSvg(q)}</div><div class="mt-2 rounded-2xl bg-white border border-[#EEF0F3] p-4"><div class="text-[11px] font-bold text-[#3182F6]">업무 Agent · ${escSvg(t.name)}</div><div class="mt-2 text-[13px] whitespace-pre-wrap">${escSvg(answer)}</div><div class="mt-3 text-[11px] text-[#8B95A1]">참고 · ${escSvg(evidence)}</div></div>`;input.value='';box.scrollTop=box.scrollHeight;
+}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.remove('opacity-0','translate-y-3');setTimeout(()=>t.classList.add('opacity-0','translate-y-3'),2200)}
+
+let mainView='briefing';
+
+// 보내는 업무 전용 데이터. 받는 업무(PROJECTS/TASKS)와 분리해 서로 겹치지 않게 구성한다.
+// Source: BMW_Korea_가상_인수인계_데이터_ver.10.07_최종본_v12.xlsx,
+// '프로젝트-업무'. Two Work examples with 원이정 as OWNER of two tasks each.
+// These are static demo fixtures, not imported handovers or live Supabase results.
+const HANDOVER_WORKS=[
+  {id:'WORK-00001',name:'레이싱 행사 사내 신청·티켓 배부',tasks:['TASK-00001','TASK-00002','TASK-00003','TASK-00004']},
+  {id:'WORK-00021',name:'고객사 변경사항 긴급 메일 발송',tasks:['TASK-00081','TASK-00082','TASK-00083','TASK-00084']}
+];
+const HANDOVER_TASKS={
+ 'TASK-00001':{name:'사내 신청 명단·Sales 초청 인원 취합',owner:'이현우',status:'완료',deadline:'9월 30일 퇴근 전까지',next:'완료',blocker:'',evidence:'첨부 Slack 원문 · THREAD-00001'},
+ 'TASK-00002':{name:'중복 신청·확보 티켓 수량 대조',owner:'강동원',status:'진행 중',deadline:'10월 17일 오후 3시까지',next:'신청 인원 중복 여부와 확보 티켓 수량 확인',blocker:'사내 신청 명단·Sales 초청 인원 취합 선행',evidence:'첨부 Slack 원문 · THREAD-00002'},
+ 'TASK-00003':{name:'최종 티켓 배부표 확정',owner:'원이정',status:'진행 중',deadline:'차주 금요일 오전 중',next:'검토 의견과 중복 대조 결과를 반영해 최종 배부표 확정',blocker:'중복 신청·확보 티켓 수량 대조 선행',evidence:'첨부 Slack 원문 · THREAD-00003'},
+ 'TASK-00004':{name:'티켓 배부·미수령자 확인',owner:'원이정',status:'완료',deadline:'9월 30일 오후 5시까지',next:'완료',blocker:'최종 티켓 배부표 확정 선행',evidence:'첨부 Slack 원문 · THREAD-00004'},
+ 'TASK-00081':{name:'딜러 변경사항 긴급 메일 직접 발송',owner:'김지수',status:'완료',deadline:'10월 4일 퇴근 전까지',next:'완료',blocker:'',evidence:'첨부 Slack 원문 · THREAD-00081'},
+ 'TASK-00082':{name:'딜러 수신 여부 확인',owner:'유재석',status:'진행 중',deadline:'11월 1일 오후 3시까지',next:'딜러별 변경사항 이메일 수신 여부 확인',blocker:'긴급 메일 발송 선행',evidence:'첨부 Slack 원문 · THREAD-00082'},
+ 'TASK-00083':{name:'누락 딜러 재전달 판단',owner:'원이정',status:'진행 중',deadline:'차주 금요일 오전 중',next:'수신 누락 딜러를 확인하고 재전달 여부 판단',blocker:'딜러 수신 여부 확인 선행',evidence:'첨부 Slack 원문 · THREAD-00083'},
+ 'TASK-00084':{name:'발송 기록·후속 문의 정리',owner:'원이정',status:'대기',deadline:'11월 11일 오후 5시까지',next:'발송 기록과 후속 문의를 정리',blocker:'누락 딜러 재전달 판단 선행',evidence:'첨부 Slack 원문 · THREAD-00084'}
+};
+
+let handoverSelected=new Set(),handoverSelectionWork=null;
+function setMainView(view){
+  if(['manage','settings'].includes(view)&&!isManagementRole()){toast('관리자 · 팀장만 접근할 수 있습니다.');return;}
+  mainView=view;
+  ['manage','settings'].forEach(v=>document.getElementById(v+'-view').classList.toggle('hidden',view!==v));
+  const briefing=document.getElementById('briefing-view');
+  const handover=document.getElementById('handover-view');
+  briefing.classList.toggle('hidden',view!=='briefing');
+  handover.classList.toggle('hidden',view!=='handover');
+  const nb=document.getElementById('nav-briefing'),nh=document.getElementById('nav-handover');
+  [nb,nh,document.getElementById('nav-manage'),document.getElementById('nav-settings')].forEach(x=>x&&x.classList.remove('bg-[#F2F7FF]','text-[#1B64DA]','font-bold'));
+  [nb,nh,document.getElementById('nav-manage'),document.getElementById('nav-settings')].forEach(x=>x&&x.classList.add('text-[#6B7684]','font-medium'));
+  const active=document.getElementById('nav-'+view);
+  if(active){active.classList.remove('text-[#6B7684]','font-medium');active.classList.add('bg-[#F2F7FF]','text-[#1B64DA]','font-bold');}
+  document.getElementById('header-kicker').textContent=view==='handover'?'실시간으로 동기화된 나의 업무':'김지수님에게서 인수받은 업무';
+  document.getElementById('header-title').textContent=view==='handover'?'나의 업무':'내 업무 브리핑';
+  if(view==='manage'){document.getElementById('header-kicker').textContent='팀장 · HR 관리자 데모';document.getElementById('header-title').textContent='인수인계 관리';renderAssignments();}
+  if(view==='settings'){document.getElementById('header-kicker').textContent='초기 설정';document.getElementById('header-title').textContent='Slack 연결 설정';renderSlackSettings();}
+  if(view==='handover'){renderHandoverTaskChecks();renderLatestSender();}
+}
+function handoverProject(){return document.getElementById('handover-project-select')?.value||'WORK-00001';}
+function handoverTaskIds(){const w=HANDOVER_WORKS.find(x=>x.id===handoverProject());return w?w.tasks:[];}
+function renderHandoverTaskChecks(){
+  const box=document.getElementById('handover-task-checks'); if(!box)return;
+  const ids=handoverTaskIds();
+  if(handoverSelectionWork!==handoverProject()){handoverSelected=new Set(ids);handoverSelectionWork=handoverProject();}
+  box.innerHTML=ids.map(id=>{const t=HANDOVER_TASKS[id],on=handoverSelected.has(id);return `<label class="flex items-center gap-3 rounded-xl border ${on?'border-[#BFD4FF] bg-white':'border-[#E5E8EB] bg-white'} px-3 py-3 cursor-pointer"><input type="checkbox" ${on?'checked':''} onchange="toggleHandoverTask('${id}')" class="w-4 h-4 accent-[#3182F6]"/><div class="min-w-0 flex-1"><div class="text-[13px] font-semibold">${t.name}</div><div class="text-[11px] text-[#8B95A1] mt-0.5">${t.status} · ${t.deadline}</div></div></label>`}).join('');
+  const all=ids.length&&ids.every(id=>handoverSelected.has(id));
+  const btn=document.getElementById('handover-toggle-all');if(btn)btn.textContent=all?'전체 해제':'전체 선택';
+}
+function toggleHandoverTask(id){handoverSelected.has(id)?handoverSelected.delete(id):handoverSelected.add(id);renderHandoverTaskChecks();}
+function toggleAllHandoverTasks(){const ids=handoverTaskIds();const all=ids.length&&ids.every(id=>handoverSelected.has(id));handoverSelected=new Set(all?[]:ids);renderHandoverTaskChecks();}
+function slackEvidenceCount(t){return Math.max(1,Array.isArray(t.history)?t.history.length:1);}
+function evidenceChips(t){
+  const id=Object.keys(TASKS).find(k=>TASKS[k]===t)||state.task; const b=evidenceBreakdown(id); const label=[b.channel?`채널 ${b.channel}`:'',b.dm?`DM ${b.dm}`:''].filter(Boolean).join(' · ')||`Slack ${slackEvidenceCount(t)}건`;
+  return `<div class="mt-3 flex flex-wrap items-center gap-1.5"><span class="text-[10px] text-[#A0A8B3]">근거</span><button type="button" onclick="openEvidence('${id}')" class="px-2 py-1 rounded-full bg-[#F2F4F6] text-[#8B95A1] text-[10px] font-bold hover:text-[#4E5968]">${label}</button>${orgState.rrLoaded?'<button type="button" onclick="openNetwork()" class="px-2 py-1 rounded-full bg-[#F2F4F6] text-[#8B95A1] text-[10px] font-bold">R&R</button>':''}</div>`;
+}
+function generateHandover(){renderMyWork();}
+function workPreparationStatus(w){const d=senderDocuments[senderKey('원이정',w.id)];return d?.confirmedAt?'준비 완료':d?.savedAt?'수정본 있음':'준비 전';}
+function selectMyWork(id){
+ document.getElementById('handover-project-select').value=id;
+ document.getElementById('my-work-prepare').classList.add('hidden');
+ renderHandoverTaskChecks();renderMyWork();
+}
+function prepareMyWork(){
+ if(!slackDemo)return toast('관리자 · 팀장에게 Slack 연결을 요청하세요.');
+ renderHandoverTaskChecks();
+ const saved=senderDocuments[senderKey('원이정',handoverProject())];
+ if(saved){handoverSelected=new Set(saved.tasks.map(t=>t.id));openSenderPreview();return;}
+ document.getElementById('my-work-prepare').classList.remove('hidden');
+}
+function renderMyWork(){
+ const all=HANDOVER_WORKS.flatMap(w=>w.tasks.map(id=>HANDOVER_TASKS[id])),work=HANDOVER_WORKS.find(w=>w.id===handoverProject())||HANDOVER_WORKS[0],tasks=work.tasks.map(id=>HANDOVER_TASKS[id]);
+ const completed=t=>t.status==='완료';
+ const status=ts=>ts.every(completed)?'완료':ts.some(t=>t.status==='진행 중')?'진행 중':'대기';
+ document.getElementById('my-work-summary').innerHTML=[['담당 Work',HANDOVER_WORKS.length],['미완료 Task',all.filter(t=>!completed(t)).length],['대기 Task',all.filter(t=>t.status==='대기').length],['인수인계 준비 완료',HANDOVER_WORKS.filter(w=>workPreparationStatus(w)==='준비 완료').length]].map(([label,n])=>`<div class="rounded-2xl bg-[#F8F9FA] p-4"><div class="text-[11px] text-[#6B7684]">${label}</div><div class="mt-2 text-[24px] font-bold">${n}<span class="ml-1 text-[12px] font-medium text-[#8B95A1]">개</span></div></div>`).join('');
+ document.getElementById('my-work-list').innerHTML=HANDOVER_WORKS.map(w=>{const ts=w.tasks.map(id=>HANDOVER_TASKS[id]),active=w.id===work.id,prep=workPreparationStatus(w);return `<button type="button" onclick="selectMyWork('${w.id}')" aria-pressed="${active}" class="w-full text-left rounded-2xl border ${active?'border-[#3182F6] bg-[#F2F7FF]':'border-[#EEF0F3] bg-white hover:bg-[#F8F9FA]'} p-4"><div class="flex items-start justify-between gap-2"><div class="text-[15px] font-bold">${escSvg(w.name)}</div><span class="material-symbols-outlined text-[18px] text-[#8B95A1]">chevron_right</span></div><div class="mt-2 text-[12px] text-[#6B7684]">${status(ts)} · Task ${ts.length}개</div><div class="mt-3 flex flex-wrap justify-between gap-2 text-[11px]"><span class="text-[#8B95A1]">최종 Task 마감 · ${escSvg(ts[ts.length-1].deadline)}</span><span class="font-bold ${prep==='준비 완료'?'text-[#008B5E]':'text-[#3182F6]'}">${prep}</span></div></button>`}).join('');
+ const next=tasks.find(t=>!completed(t)),saved=senderDocuments[senderKey('원이정',work.id)];
+ document.getElementById('handover-result').innerHTML=`<div class="flex flex-wrap justify-between items-start gap-3"><div><div class="text-[11px] font-bold text-[#3182F6]">Work 상세 · ${status(tasks)}</div><h3 class="mt-2 text-[22px] font-bold">${escSvg(work.name)}</h3><p class="mt-2 text-[12px] text-[#8B95A1]">주담당 원이정 · 전체 업무 흐름 Task ${tasks.length}개 · 최종 Task 마감 ${escSvg(tasks[tasks.length-1].deadline)}</p></div><button onclick="prepareMyWork()" class="h-11 px-4 rounded-xl bg-[#3182F6] hover:bg-[#1B64DA] text-white text-[13px] font-bold">${saved?'인수인계 준비본 확인':'인수인계 준비하기'}</button></div><div class="mt-5 rounded-2xl bg-[#F2F7FF] border border-[#D9E9FF] p-4"><div class="text-[11px] font-bold text-[#1B64DA]">지금 해야 할 일</div><div class="mt-2 text-[14px] font-semibold">${escSvg(next?.next||'모든 세부 업무가 완료됐어요.')}</div>${next?.blocker?`<p class="mt-2 text-[12px] text-[#6B7684]">확인할 사항 · ${escSvg(next.blocker)}</p>`:''}</div><div class="mt-5 flex justify-between items-center"><h4 class="text-[15px] font-bold">포함된 세부 업무</h4><span class="text-[11px] text-[#8B95A1]">첨부 데이터 기준</span></div><div class="mt-3 divide-y divide-[#EEF0F3]">${tasks.map(t=>`<div class="py-3"><div class="flex justify-between gap-3"><div class="text-[13px] font-bold">${escSvg(t.name)}</div><span class="text-[11px] text-[#6B7684] shrink-0">${escSvg(t.deadline)}</span></div><div class="mt-1 text-[11px] text-[#8B95A1]">${escSvg(t.status)} · 담당자 ${escSvg(t.owner||"원이정")}</div><p class="mt-2 text-[12px] text-[#4E5968]">${escSvg(t.next)}</p><div class="mt-2 inline-flex px-2 py-1 rounded-full bg-[#F2F4F6] text-[10px] text-[#8B95A1]">Slack 근거 · ${escSvg(t.evidence)}</div></div>`).join('')}</div><div class="mt-4 border-t border-[#EEF0F3] pt-4 flex flex-wrap justify-between gap-2 text-[11px] text-[#8B95A1]"><span>인수인계 · ${workPreparationStatus(work)}${saved?' · v'+saved.version:''}</span><span>${saved?'준비본은 Slack 동기화 결과와 별도로 저장돼요.':'준비본을 수정·저장한 뒤 준비 완료로 확정하세요.'}</span></div>`;
+}
+
+// Feedback additions: local demo state only; no Slack or Graph DB requests.
+function readDemo(key,fallback){try{return JSON.parse(localStorage.getItem(key))||fallback;}catch{return fallback;}}
+let slackDemo=readDemo('workgap-feedback-slack',null)||{workspace:'Bizineer',scopes:['channels','private','dm']};
+let assignments=readDemo('workgap-feedback-assignments',[]);
+if(!Array.isArray(assignments))assignments=[];
+let graphStorageMessage='관계 그래프 · 로컬 데모';
+function writeDemo(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true;}catch{return false;}}
+function assignmentForTask(id){return [...assignments].reverse().find(a=>a.status==='완료'&&PROJECTS.find(p=>p.id===a.project)?.tasks.includes(id));}
+function saveGraphDemo(){
+  const nodes=[],edges=[];
+  const person=name=>{if(!nodes.some(n=>n.id==='person:'+name))nodes.push({id:'person:'+name,type:'person',name,meta:personMeta(name)});};
+  for(const [id,t] of Object.entries(TASKS)){
+    const a=assignmentForTask(id),from=a?.from||t.owner,to=a?.to||'원이정';
+    nodes.push({id,type:'task',name:t.name,project:projectForTask(id).id});person(from);person(to);
+    edges.push({from:'person:'+from,to:id,type:'담당'},{from:id,to:'person:'+to,type:'인수인계',previousOwner:from});
+    t.people.filter(n=>n!==from&&n!==to).forEach(n=>{person(n);edges.push({from:'person:'+n,to:id,type:'협업'});});
+    rrRelationsForTask(t).forEach(r=>{person(r.name);edges.push({from:'person:'+r.name,to:id,type:'R&R'});});
+    t.depends.forEach(name=>{const next=Object.keys(TASKS).find(k=>TASKS[k].name===name);if(next)edges.push({from:id,to:next,type:'후속'});});
+  }
+  graphStorageMessage=writeDemo('workgap-feedback-graph',{nodes,edges,updatedAt:new Date().toISOString()})?'관계 그래프 · 로컬 저장·동기화 완료 (데모)':'관계 그래프 · 현재 화면에 반영 (로컬 저장 불가)';
+}
+function renderPriorityOverview(){
+  const ids=Object.keys(TASKS).sort((a,b)=>TASKS[b].risk-TASKS[a].risk).slice(0,5);
+  document.getElementById('priority-overview').innerHTML=`<div class="flex flex-wrap items-center justify-between gap-2"><div><h2 class="text-[16px] font-bold">전체 우선순위 TOP 5</h2><p class="mt-1 text-[11px] text-[#8B95A1]">전체 프로젝트의 세부 업무 기준 · 선택하면 상세 내용을 확인할 수 있어요.</p></div><button onclick="showAllTasks()" class="text-[12px] font-bold text-[#3182F6]">전체 8건 보기 →</button></div><div class="mt-4 grid sm:grid-cols-2 xl:grid-cols-5 gap-2">${ids.map((id,i)=>{const t=TASKS[id];return `<button onclick="openPriorityTask('${id}')" aria-pressed="${state.task===id}" class="text-left rounded-2xl border ${state.task===id?'border-[#4F6EF7] bg-[#F2F7FF]':'border-[#EEF0F3] bg-white'} p-3"><div class="flex items-center justify-between gap-1"><span class="text-[11px] font-bold text-[#8B95A1]">${i+1}위</span><span class="text-[10px] font-bold rounded-full px-2 py-1 ${riskBadge(t.risk)}">우선순위 ${t.risk == null ? '미산정' : t.risk}</span></div><div class="mt-2 text-[10px] text-[#8B95A1]">${projectForTask(id).name}</div><div class="mt-1 text-[13px] font-bold">${t.name}</div><div class="mt-2 text-[10px] text-[#6B7684] flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">schedule</span>${t.deadline}</div></button>`;}).join('')}</div>`;
+}
+function clearTypeFilter(){state.filter=null;document.querySelectorAll('.filter-btn').forEach(b=>b.className='filter-btn h-9 px-3 rounded-xl border border-[#DDE3EA] bg-white text-[12px] font-medium');}
+function showAllTasks(){clearTypeFilter();state.project='all';document.getElementById('sort-select').value='risk';render();}
+function openPriorityTask(id){clearTypeFilter();state.project='all';state.task=id;state.detailTab='timeline';render();document.getElementById('task-detail').scrollIntoView({behavior:'smooth',block:'start'});}
+function renderSlackSettings(){
+  const connected=!!slackDemo;
+  document.getElementById('slack-setting-status').textContent=connected?slackDemo.workspace+' · 연결됨 (데모)':'연결되지 않음';
+  document.getElementById('slack-connect-btn').textContent=connected?'연결 해제':'Slack 연결 체험';
+  document.getElementById('slack-workspace').disabled=connected;
+  if(connected)document.getElementById('slack-workspace').value=slackDemo.workspace;
+  ['channels','private','dm'].forEach(k=>{const el=document.getElementById('slack-'+k);el.disabled=connected;if(connected)el.checked=slackDemo.scopes.includes(k);});
+}
+function connectSlackDemo(){
+  if(!isManagementRole())return toast('관리자 · 팀장만 설정할 수 있습니다.');
+  if(slackDemo){slackDemo=null;writeDemo('workgap-feedback-slack',null);renderSlackSettings();return;}
+  const workspace=document.getElementById('slack-workspace').value.trim();
+  const scopes=['channels','private','dm'].filter(k=>document.getElementById('slack-'+k).checked);
+  if(!workspace)return toast('워크스페이스 이름을 입력하세요.');
+  if(!scopes.length)return toast('조회 범위를 하나 이상 선택하세요.');
+  slackDemo={workspace,scopes};writeDemo('workgap-feedback-slack',slackDemo);renderSlackSettings();toast('Slack 연결 체험을 완료했습니다.');
+}
+function renderAssignments(){
+  document.getElementById('assignment-list').innerHTML=assignments.length?[...assignments].reverse().map(a=>{
+    const p=PROJECTS.find(p=>p.id===a.project),busy=a.status==='분석 중';
+    return `<details class="rounded-2xl border border-[#EEF0F3] p-4"><summary class="cursor-pointer flex flex-wrap items-center justify-between gap-3"><span class="text-[13px] font-bold">${escSvg(a.from)}님의 ${p.name} → ${escSvg(a.to)}님</span><span class="text-[11px] font-bold px-2.5 py-1 rounded-full ${a.status==='완료'?'bg-[#EAFBF4] text-[#008B5E]':'bg-[#F2F7FF] text-[#1B64DA]'}">${a.status}</span></summary><div class="mt-3 text-[12px] text-[#6B7684]">세부 업무 ${p.tasks.length}건 · ${p.tasks.map(id=>TASKS[id].name).join(', ')}</div><div class="mt-3 flex items-center justify-between gap-3"><span class="text-[11px] text-[#8B95A1]">${a.status==='완료'?'인수인계 관계를 그래프에 반영했어요.':busy?'예시 데이터의 업무 관계를 분석하고 있어요.':'배정 완료 · 분석을 시작하세요.'}</span>${a.status==='분석 대기'?`<button onclick="analyzeAssignment('${a.id}')" class="px-3 py-2 rounded-xl bg-[#3182F6] text-white text-[11px] font-bold">분석 시작</button>`:''}</div></details>`;
+  }).join(''):'<div class="rounded-2xl bg-[#F8F9FA] p-5 text-[13px] text-[#8B95A1]">아직 배정한 인수인계가 없어요.</div>';
+}
+function assignHandover(){
+  const from=document.getElementById('assign-from').value,to=document.getElementById('assign-to').value,project=document.getElementById('assign-project').value;
+  if(from===to)return toast('인계자와 인수자를 다르게 선택하세요.');
+  if(assignments.some(a=>a.project===project&&a.status!=='완료'))return toast('이 프로젝트에 진행 중인 배정이 있어요.');
+  assignments.push({id:'a'+Date.now(),from,to,project,status:'분석 대기'});writeDemo('workgap-feedback-assignments',assignments);renderAssignments();toast('인수인계를 배정했습니다.');
+}
+function analyzeAssignment(id){
+  const a=assignments.find(a=>a.id===id);if(!a||a.status!=='분석 대기')return;
+  a.status='분석 중';writeDemo('workgap-feedback-assignments',assignments);renderAssignments();
+  setTimeout(()=>{a.status='완료';writeDemo('workgap-feedback-assignments',assignments);saveGraphDemo();renderAssignments();if(state.detailTab==='people')renderDetail();toast('분석 완료 · 인수인계 관계를 반영했습니다.');},1500);
+}
+assignments.forEach(a=>{if(a.status==='분석 중')a.status='분석 대기';});
+saveGraphDemo();renderSlackSettings();
+
+// LINK-ing: sending document preview, edits, and latest saved revision (local demo).
+let senderDraft=null,senderTaskId=null,senderEditing=false,senderReceived=false;
+let senderDocuments=readDemo('link-ing-documents',{});
+if(!senderDocuments||Array.isArray(senderDocuments)||typeof senderDocuments!=='object')senderDocuments={};
+const copyDoc=d=>JSON.parse(JSON.stringify(d));
+function senderKey(owner,workId){return owner+'::'+workId;}
+function renderLatestSender(){renderMyWork();}
+function openSenderPreview(received=false){
+ if(!received){
+  const ids=handoverTaskIds().filter(id=>handoverSelected.has(id));
+  if(!ids.length)return toast('미리볼 세부 업무를 하나 이상 선택하세요.');
+  const work=HANDOVER_WORKS.find(w=>w.id===handoverProject()),saved=senderDocuments[senderKey('원이정',work.id)];
+  senderDraft={...(saved?copyDoc(saved):{}),owner:'원이정',workId:work.id,workName:work.name,tasks:ids.map(id=>copyDoc(saved?.tasks.find(t=>t.id===id)||{id,...HANDOVER_TASKS[id]})),savedAt:saved?.savedAt||null};
+  if(saved && (saved.tasks.length!==ids.length || saved.tasks.some(t=>!ids.includes(t.id)))) senderDraft.confirmedAt=null;
+ }
+ senderReceived=received;senderEditing=false;senderDetailTab='timeline';senderTaskId=senderDraft.tasks[0].id;
+ ['briefing','handover','manage','settings'].forEach(v=>document.getElementById(v+'-view').classList.add('hidden'));
+ document.getElementById('sender-preview-view').classList.remove('hidden');
+ document.getElementById('header-title').textContent=received?'전달받은 최신 문서':'인수인계 준비본';
+ document.getElementById('header-kicker').textContent=received?senderDraft.owner+'님이 저장한 최근 수정본':'준비본 확인 → 수정·저장 → 준비 완료';
+ renderSenderDashboard();window.scrollTo({top:0,behavior:'smooth'});
+}
+let senderDetailTab='timeline';
+function setSenderDetailTab(tab){if(senderEditing)return;senderDetailTab=tab;renderSenderDashboard();}
+function senderDetailContent(d,t){
+ if(senderDetailTab==='resources')return `<div class="rounded-2xl border border-[#EEF0F3] p-5"><h4 class="text-[14px] font-bold">관련 자료 · Slack 근거</h4><div class="mt-3 inline-flex rounded-full bg-[#F2F4F6] px-3 py-2 text-[12px] text-[#6B7684]">${escSvg(t.evidence||'연결된 근거 없음')}</div><p class="mt-3 text-[12px] text-[#8B95A1]">이 데모에는 자료 링크와 Slack 원문이 포함되어 있지 않아요.</p></div>`;
+ if(senderDetailTab==='relations')return `<div class="rounded-2xl border border-[#EEF0F3] p-5"><div class="text-[12px] text-[#8B95A1]">같은 Work에 포함된 업무</div><div class="mt-2 text-[16px] font-bold">${escSvg(d.workName)}</div><div class="mt-4 grid sm:grid-cols-3 gap-3">${d.tasks.map(x=>`<button onclick="selectSenderTask('${x.id}')" class="text-left rounded-2xl border ${x.id===t.id?'border-[#3182F6] bg-[#F2F7FF]':'border-[#DDE3EA]'} p-4"><div class="text-[12px] font-bold">${escSvg(x.name)}</div><div class="mt-2 text-[11px] text-[#8B95A1]">${escSvg(x.status)}</div></button>`).join('')}</div><p class="mt-4 text-[11px] text-[#8B95A1]">업무 간 선후 관계는 연결된 데이터가 있을 때 표시돼요.</p></div>`;
+ const base=HANDOVER_TASKS[t.id];
+ const rows=[...(base?[{label:'동기화된 업무 요약',text:base.status+' · '+base.next,source:base.evidence}]:[]),...(d.savedAt?[{label:'준비본 저장 · '+new Date(d.savedAt).toLocaleString('ko-KR'),text:d.owner+'님이 인수인계 준비본을 저장했습니다.'}]:[]),{label:'현재 · '+t.status,text:t.next,source:t.evidence,current:true},{label:'다음에 확인할 사항',text:t.blocker||'업무를 진행한 뒤 완료 여부를 확인하세요.',future:true}];
+ return `<div class="pl-2">${rows.map(r=>`<div class="relative border-l-2 border-[#EEF0F3] pl-6 pb-6 last:pb-0"><span class="absolute -left-[7px] top-1 w-3 h-3 rounded-full ${r.current?'bg-[#5B83F7] ring-4 ring-[#EEF3FF]':r.future?'bg-white border-2 border-[#B8C0CC]':'bg-[#B8C0CC]'}"></span><div class="text-[12px] font-bold ${r.current?'text-[#5B83F7]':'text-[#8B95A1]'}">${escSvg(r.label)}</div><p class="mt-2 text-[14px] leading-relaxed text-[#4E5968]">${escSvg(r.text)}</p>${r.source?`<button onclick="setSenderDetailTab('resources')" class="mt-3 px-3 py-2 rounded-full bg-[#F2F4F6] text-[11px] font-bold text-[#8B95A1]">${escSvg(r.source)}</button>`:''}</div>`).join('')}</div>`;
+}
+function renderSenderDashboard(){
+ const d=senderDraft,t=d.tasks.find(x=>x.id===senderTaskId)||d.tasks[0];
+ const field=(key,label,multiline=false)=>`<div class="mt-4"><div class="text-[11px] font-bold text-[#6B7684]">${label}</div>${multiline?`<textarea id="sender-field-${key}" rows="3" class="mt-2 w-full rounded-xl border border-[#DDE3EA] p-3 text-[13px]">${escSvg(t[key]||'')}</textarea>`:`<input id="sender-field-${key}" value="${escSvg(t[key]||'')}" class="mt-2 w-full h-11 rounded-xl border border-[#DDE3EA] px-3 text-[13px]"/>`}</div>`;
+ const editing=senderEditing?`<div class="mt-5 rounded-2xl border border-[#D9E9FF] bg-[#F8FAFF] p-5"><div class="text-[14px] font-bold">인수인계 내용 수정</div>${field('name','업무명')}<div class="grid sm:grid-cols-2 gap-4">${field('status','현재 상태')}${field('deadline','마감')}</div>${field('next','지금 해야 할 일',true)}${field('blocker','막힌 이유 · 주의사항',true)}<div class="mt-4 flex justify-end gap-2"><button onclick="cancelSenderEdit()" class="px-4 py-2 rounded-xl border border-[#DDE3EA] text-[12px]">취소</button><button onclick="saveSenderEdit()" class="px-4 py-2 rounded-xl bg-[#3182F6] text-white text-[12px] font-bold">수정 저장</button></div></div>`:'';
+ document.getElementById('sender-preview-view').innerHTML=`<section class="bg-white rounded-[22px] border border-[#EEF0F3] p-5"><div class="flex flex-wrap justify-between items-center gap-3"><div><div class="text-[11px] font-bold text-[#3182F6]">${senderReceived?'전달받은 인수인계':senderEditing?'준비본 수정 중':d.confirmedAt?'인수인계 준비 완료 · v'+d.version:'상대방에게 보이는 준비본'}</div><h2 class="mt-2 text-[20px] font-bold">${escSvg(d.workName)}</h2><p class="mt-1 text-[12px] text-[#8B95A1]">인계자 ${escSvg(d.owner)} · 세부 업무 ${d.tasks.length}건${d.savedAt?' · '+new Date(d.savedAt).toLocaleString('ko-KR')+' 저장':''}</p></div><button onclick="leaveSenderPreview()" class="px-3 py-2 rounded-xl border border-[#DDE3EA] text-[12px] font-bold">${senderReceived?'내 인수 업무로':'나의 업무로'}</button></div></section>
+ <section class="grid grid-cols-12 gap-5 items-start"><aside class="col-span-12 xl:col-span-3 bg-white rounded-[22px] border border-[#EEF0F3] p-5"><h3 class="text-[16px] font-bold">인수인계할 업무</h3><div class="mt-4 space-y-3">${d.tasks.map(x=>`<button ${senderEditing?'disabled':''} onclick="selectSenderTask('${x.id}')" class="w-full text-left p-4 rounded-2xl border disabled:opacity-50 ${x.id===t.id?'border-[#3182F6] bg-[#F2F7FF]':'border-[#EEF0F3] bg-white'}"><div class="text-[13px] font-bold">${escSvg(x.name)}</div><div class="mt-2 text-[11px] text-[#8B95A1]">${escSvg(x.status)} · ${escSvg(x.deadline)}</div></button>`).join('')}</div></aside>
+ <div class="col-span-12 xl:col-span-9 bg-white rounded-[22px] border border-[#EEF0F3] overflow-hidden"><div class="p-6 sm:p-8"><div class="flex justify-between items-start gap-4"><div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="px-3 py-1.5 rounded-full bg-[#F2F7FF] text-[#3182F6] text-[12px] font-bold">${escSvg(t.status)}</span>${t.priority!=null?`<span class="text-[12px] text-[#D92D20] font-bold">우선순위 ${escSvg(t.priority)}</span>`:''}</div><h2 class="mt-4 text-[26px] sm:text-[30px] font-bold tracking-tight">${escSvg(t.name)}</h2></div><div class="text-right shrink-0"><div class="text-[11px] text-[#8B95A1]">마감</div><div class="mt-2 text-[16px] sm:text-[19px] font-bold"><span class="material-symbols-outlined mr-1 text-[18px]">schedule</span>${escSvg(t.deadline||'미정')}</div></div></div>
+ ${editing}
+ <div class="mt-7 grid md:grid-cols-3 gap-4"><div class="md:col-span-2 rounded-[24px] bg-[#F4F7FF] border border-[#D9E5FF] p-6"><div class="text-[13px] font-bold text-[#4B6CF1]"><span class="material-symbols-outlined mr-1 text-[18px]">arrow_forward</span>지금 해야 할 일</div><div class="mt-4 text-[19px] font-bold leading-relaxed whitespace-pre-wrap">${escSvg(t.next||'다음 할 일 확인 필요')}</div></div><div class="rounded-[24px] bg-[#F8F9FA] border border-[#EEF0F3] p-6"><div class="text-[13px] font-bold text-[#6B7684]">막힌 이유 · 주의사항</div><div class="mt-4 text-[15px] font-bold leading-relaxed whitespace-pre-wrap">${escSvg(t.blocker||'등록된 내용 없음')}</div></div></div>
+ <h3 class="mt-6 text-[13px] font-bold text-[#6B7684]">다음 흐름</h3><div class="mt-4 flex flex-col sm:flex-row sm:items-center gap-3"><div class="flow-node active rounded-2xl border p-4 sm:w-[26%]"><div class="text-[11px] text-[#8B95A1]">현재</div><div class="mt-2 text-[13px] font-bold">${escSvg(t.status)}</div></div><div class="hidden sm:block flow-line"></div><div class="rounded-2xl border border-[#DDE3EA] p-4 sm:flex-1"><div class="text-[11px] text-[#8B95A1]">다음</div><div class="mt-2 text-[13px] font-bold">${escSvg(t.next)}</div></div><div class="hidden sm:block flow-line"></div><div class="rounded-2xl border border-[#DDE3EA] p-4 sm:w-[24%]"><div class="text-[11px] text-[#8B95A1]">마지막 확인</div><div class="mt-2 text-[13px] font-bold">업무 완료 여부 확인</div></div></div></div>
+ <div class="border-t border-[#EEF0F3] p-6 sm:p-8"><div class="flex flex-wrap gap-2" role="tablist" aria-label="인수인계 상세 정보">${[['timeline','진행 타임라인','timeline'],['resources','관련 자료','folder_open'],['relations','업무 관계','hub']].map(([key,label,icon])=>`<button role="tab" aria-selected="${senderDetailTab===key}" ${senderEditing?'disabled':''} onclick="setSenderDetailTab('${key}')" class="px-4 py-3 rounded-2xl border text-[12px] font-bold ${senderDetailTab===key?'bg-[#191F28] text-white border-[#191F28]':'bg-white text-[#6B7684] border-[#DDE3EA]'}"><span class="material-symbols-outlined mr-1 text-[17px]">${icon}</span>${label}</button>`).join('')}</div><div class="mt-6" role="tabpanel">${senderDetailContent(d,t)}</div></div></div></section>
+ ${senderReceived?'':`<div class="flex flex-wrap justify-between items-center gap-3"><span class="text-[11px] text-[#8B95A1]">${senderEditing?'수정 내용을 저장한 뒤 준비 완료를 눌러주세요.':'상대방도 같은 형식으로 인수인계 내용을 확인합니다.'}</span><div class="flex gap-2"><button ${senderEditing?'disabled':''} onclick="startSenderEdit()" class="h-11 px-5 rounded-xl border border-[#DDE3EA] bg-white disabled:opacity-40 text-[13px] font-bold">내용 수정하기</button><button ${senderEditing?'disabled':''} onclick="confirmSenderExport()" class="h-11 px-5 rounded-xl bg-[#3182F6] disabled:opacity-40 text-white text-[13px] font-bold">인수인계 준비 완료</button></div></div>`}`;
+}
+function previewSenderWork(id){if(senderEditing||senderReceived)return;document.getElementById('handover-project-select').value=id;renderHandoverTaskChecks();openSenderPreview();}
+function selectSenderTask(id){if(senderEditing)return;senderTaskId=id;senderDetailTab='timeline';renderSenderDashboard();}
+function startSenderEdit(){senderEditing=true;renderSenderDashboard();}
+function cancelSenderEdit(){senderEditing=false;renderSenderDashboard();}
+function persistSenderDocument(){
+ const key=senderKey(senderDraft.owner,senderDraft.workId),candidate=copyDoc(senderDraft);
+ candidate.version=(senderDocuments[key]?.version||0)+1;candidate.savedAt=new Date().toISOString();
+ const next={...senderDocuments,[key]:candidate};
+ if(!writeDemo('link-ing-documents',next)){toast('저장하지 못했습니다. 브라우저 저장 공간을 확인하세요.');return false;}
+ senderDocuments=next;senderDraft=candidate;return true;
+}
+function saveSenderEdit(){
+ const t=senderDraft.tasks.find(x=>x.id===senderTaskId),values={};
+ for(const key of ['name','status','deadline','next','blocker'])values[key]=document.getElementById('sender-field-'+key).value.trim();
+ if(!values.name||!values.status||!values.next)return toast('업무명, 상태, 다음 할 일을 입력하세요.');
+ const previous=copyDoc(t);Object.assign(t,values);senderDraft.confirmedAt=null;
+ if(!persistSenderDocument()){Object.assign(t,previous);return;}
+ senderEditing=false;renderSenderDashboard();toast('수정본을 저장했습니다. 준비 완료를 누르면 인수인계를 보낼 수 있는 상태가 됩니다.');
+}
+function confirmSenderExport(){
+ if(senderEditing)return;
+ senderDraft.confirmedAt=new Date().toISOString();
+ if(!persistSenderDocument())return;
+ renderSenderDashboard();toast('인수인계 준비가 완료됐습니다. 승인된 인수 요청이 오면 이 준비본을 전달합니다.');
+}
+function leaveSenderPreview(){if(senderEditing){toast('수정을 저장하거나 취소한 뒤 돌아가세요.');return;}document.getElementById('sender-preview-view').classList.add('hidden');setMainView(senderReceived?'briefing':'handover');}
+function deliverLatestSender(){
+ const docs=Object.values(senderDocuments).filter(d=>d.confirmedAt&&d.owner===importState.person&&d.tasks.some(t=>importState.selected.has(d.workName+'::'+(HANDOVER_TASKS[t.id]?.name||t.name))));
+ if(!docs.length)return false;
+ const tasks=docs.flatMap(d=>d.tasks.filter(t=>importState.selected.has(d.workName+'::'+(HANDOVER_TASKS[t.id]?.name||t.name))));
+ if(tasks.length!==importState.selected.size)return false;
+ const latest=[...docs].sort((a,b)=>b.savedAt.localeCompare(a.savedAt))[0];senderDraft=copyDoc({...latest,workName:docs.map(d=>d.workName).join(' · '),tasks});
+ closeImport();openSenderPreview(true);toast('승인된 업무의 최신 인수인계 준비본을 전달했습니다. (데모)');return true;
+}
+IMPORT_DATA['원이정']=HANDOVER_WORKS.map(w=>({project:w.name,tasks:w.tasks.map(id=>HANDOVER_TASKS[id].name)}));
+const originalSetMainView=setMainView;
+setMainView=function(view){if(senderEditing){toast('수정을 저장하거나 취소한 뒤 이동하세요.');return;}if(['manage','settings'].includes(view)&&!isManagementRole())return originalSetMainView(view);document.getElementById('sender-preview-view').classList.add('hidden');originalSetMainView(view);};
+
+render();
+</script>
+<script src="/demo_adapter.js"></script>
+<script src="/admin_adapter.js"></script>
+</body>
+</html>
+,'u');
+ if(verbs.test(action)){
+   action=action.replace(verbs,'$1');
+   // Drop object particle directly preceding a nominalized action, not internal particles.
+   action=action.replace(/([\p{L}\p{N}]+)(?:을|를)\s+(?=[가-힣]+$)/u,'$1 ');
+   return prefix+action.trim();
+ }
+ // Handle a small set of complete verb phrases without manufacturing a different event.
+ const phrases=[
+  [/받았습니다$/u,'수신'],[/받았다$/u,'수신'],
+  [/보냈습니다$/u,'발송'],[/보냈다$/u,'발송'],
+  [/올렸습니다$/u,'업로드'],[/올렸다$/u,'업로드'],
+  [/기다리고 있습니다$/u,'대기 중'],[/기다리고 있다$/u,'대기 중']
+ ];
+ for(const [pattern,replacement] of phrases){
+   if(pattern.test(action))return prefix+action.replace(pattern,replacement).trim();
+ }
+ // Unsupported expressions retain the actual extracted action rather than a fabricated nominal.
+ return prefix+action;
+}
 function timelineItems(t){
  const past=t.history.map((x,i)=>({kind:'past',label:'기록 '+(i+1),text:x}));
  const current={kind:'current',label:'현재 · '+t.status,text:t.next};
