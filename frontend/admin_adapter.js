@@ -127,6 +127,7 @@
   let r;try{r=(await load()).find(x=>x.id===id&&x.status==='approved'&&x.requesterId===PERSON_IDS[actor]);}
   catch(e){return message(e.message)}
   if(!r)return message('승인된 인수인계만 확인 가능합니다.');
+  showGate('approved');
   closePanel();
   if(PROJECTS.some(p=>p.id===r.workId)){
    state.project=r.workId;state.task=PROJECTS.find(p=>p.id===r.workId).tasks.find(t=>TASKS[t]?.status!=='완료')||PROJECTS.find(p=>p.id===r.workId).tasks[0];state.filter=null;
@@ -243,11 +244,55 @@
    if(label)label.textContent=loginSelect.value==='팀장'?'팀장':'일반사원';
   });
  }
+
+ // Fail closed: an unapproved recipient must not see imported Work on the dashboard.
+ // This is presentation gating only; server-side per-user authentication remains TODO.
+ const gateStyle=document.createElement('style');
+ gateStyle.textContent='#briefing-view.handover-locked > :not(#handover-approval-gate){display:none!important}';
+ document.head.appendChild(gateStyle);
+ function showGate(mode){
+  const briefing=el('briefing-view');
+  if(!briefing)return;
+  const locked=actor==='원이정'&&mode!=='approved';
+  briefing.classList.toggle('handover-locked',locked);
+  let gate=el('handover-approval-gate');
+  if(!gate){
+   gate=document.createElement('section');
+   gate.id='handover-approval-gate';
+   gate.className='rounded-[22px] border border-[#E5E8EB] bg-white p-8 text-center';
+   briefing.prepend(gate);
+  }
+  gate.classList.toggle('hidden',!locked);
+  if(locked){
+   const description=mode==='checking'?'인수인계 승인 상태를 확인하고 있어요.':mode==='error'?'승인 상태를 조회할 수 없어 업무를 표시하지 않습니다.':'아직 승인된 인수인계 업무가 없습니다. 김지수에게 업무를 요청하면 김지수 또는 팀장의 승인 후 여기에 표시됩니다.';
+   gate.innerHTML='<span class="material-symbols-outlined text-[34px] text-[#8B95A1]">lock</span><h2 class="mt-3 text-[20px] font-bold">인수인계 승인 대기</h2><p class="mt-2 text-[13px] text-[#6B7684]">'+description+'</p><div class="mt-6 flex flex-wrap justify-center gap-2"><button id="handover-gate-request" class="rounded-xl bg-[#3182F6] px-4 py-3 text-[13px] font-bold text-white">인수인계 요청하기</button><button id="handover-gate-refresh" class="rounded-xl border border-[#DDE3EA] bg-white px-4 py-3 text-[13px] font-bold">승인 상태 새로고침</button></div>';
+   el('handover-gate-request').onclick=()=>openImport();
+   el('handover-gate-refresh').onclick=()=>refreshGate();
+  }
+  const header=el('header-kicker');
+  if(header&&actor==='원이정')header.textContent=locked?'인수인계 요청 대기':'김지수님에게 이어받은 업무';
+  const heading=el('header-title');
+  if(heading&&actor==='원이정')heading.textContent=locked?'아직 이어받은 업무가 없어요':'내 업무 브리핑';
+ }
+ async function refreshGate(){
+  if(actor!=='원이정'){showGate('approved');return;}
+  showGate('checking');
+  try{
+   const records=await load();
+   const approved=records.some(r=>r.requesterId===PERSON_IDS['원이정']&&r.sourceId===PERSON_IDS['김지수']&&r.workId===WORK_ID&&r.status==='approved');
+   showGate(approved?'approved':'pending');
+   if(approved&&typeof render==='function')render();
+  }catch(e){showGate('error');message('승인 상태를 확인하지 못했습니다. '+e.message);}
+ }
+
  const previousEnterApp=enterApp;
  enterApp=function(){
   const selection=loginSelect?.value||'원이정';
   actor=ACCOUNT.includes(selection)?selection:'원이정';
+  // Install the approval gate before removing the login overlay.
+  showGate(actor==='원이정'?'checking':'approved');
   previousEnterApp();
+  if(actor==='원이정')refreshGate();
   const role=el('handover-login-role');if(role)role.textContent=actor==='팀장'?'팀장':'일반사원';
   if(actor==='팀장'){
    if(typeof setMainView==='function')setMainView('briefing');
