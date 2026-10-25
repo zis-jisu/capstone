@@ -924,6 +924,21 @@ async function loadPersonalWorksFromSupabase(){
  const personId=persons[personalWorkActor];
  if(!personId){if(stamp)stamp.textContent='팀장 계정은 직원 업무가 없습니다';return;}
  const currentActor=personalWorkActor;
+ // Won I-jeong's original two-Work scenario is a demo fixture, not present
+ // in the current Supabase snapshot. Keep it unchanged when the load button is pressed.
+ if(currentActor==='원이정'){
+  HANDOVER_WORKS.splice(0,HANDOVER_WORKS.length,...ORIGINAL_PERSONAL_WORKS.map(w=>({...w,tasks:[...w.tasks]})));
+  const select=document.getElementById('handover-project-select');
+  const previous=select?.value;
+  if(select){
+   select.innerHTML=HANDOVER_WORKS.map(w=>'<option value="'+w.id+'">'+escSvg(w.name)+'</option>').join('');
+   if(HANDOVER_WORKS.some(w=>w.id===previous))select.value=previous;
+  }
+  handoverSelectionWork=null;
+  if(stamp)stamp.textContent='업무 불러오기 완료 · 시연 데이터';
+  renderMyWork();
+  return;
+ }
  if(btn){btn.disabled=true;btn.textContent='불러오는 중...';}
  if(stamp)stamp.textContent='Supabase 조회 중';
  try{
