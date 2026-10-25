@@ -45,8 +45,8 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
     <p class="mt-3 text-[14px] leading-relaxed text-[#6B7684]">시연 환경에 접속합니다. 실제 YubiKey 인증은 아직 연동되지 않았습니다.</p>
     <div class="mt-7 space-y-3">
       <label class="block">
-        <span class="text-[12px] font-semibold text-[#6B7684]">회사 계정</span>
-        <div class="mt-2 flex items-center gap-3"><input aria-label="회사 계정" value="won.lee@bizineer.co.kr" class="min-w-0 flex-1 h-12 rounded-xl border border-[#DDE3EA] px-4 text-[14px] outline-none focus:border-[#3182F6]"/><span class="shrink-0 rounded-full bg-[#F2F7FF] text-[#1B64DA] px-3 py-1.5 text-[12px] font-bold">일반사원</span></div>
+        <span class="text-[12px] font-semibold text-[#6B7684]">접속 계정 선택</span>
+        <div class="mt-2 flex items-center gap-3"><select id="handover-login-account" aria-label="시연 로그인 계정" class="min-w-0 flex-1 h-12 rounded-xl border border-[#DDE3EA] px-4 text-[14px] bg-white outline-none focus:border-[#3182F6]"><option value="원이정">원이정 · Marketing</option><option value="김지수">김지수 · Marketing</option><option value="팀장">팀장 · Marketing</option></select><span id="handover-login-role" class="shrink-0 rounded-full bg-[#F2F7FF] text-[#1B64DA] px-3 py-1.5 text-[12px] font-bold">일반사원</span></div>
       </label>
       <div class="rounded-2xl bg-[#F2F7FF] border border-[#D9E9FF] p-4 flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl bg-white text-[#3182F6] flex items-center justify-center border border-[#D9E9FF]"><span class="material-symbols-outlined">key</span></div>
