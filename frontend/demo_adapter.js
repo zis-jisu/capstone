@@ -175,7 +175,7 @@
     Object.keys(SLACK_EVIDENCE).forEach(k=>delete SLACK_EVIDENCE[k]);
     Object.keys(FILES).forEach(k=>delete FILES[k]);
     PEOPLE.splice(0,PEOPLE.length);
-    HANDOVER_WORKS.splice(0,HANDOVER_WORKS.length);
+    // Keep standalone My Work demonstration fixtures across account switches.
     Object.keys(IMPORT_DATA).forEach(k=>delete IMPORT_DATA[k]);
     state.project='all';state.task=null;
   };
