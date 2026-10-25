@@ -107,7 +107,7 @@
 (() => {
  'use strict';
  const TEAM=['김지수','박서연','최민준'], ACCOUNT=['원이정','김지수','팀장'];
- const PERSON_IDS={'원이정':'U0C20G9MRML','김지수':'U0C22C8M742'};
+ const PERSON_IDS={'원이정':'U0C20G9MRML','김지수':'U0C22C8M742','박서연':'U0C6WSR5275','최민준':'U0C38J2MUF4'};
  const API='/api/demo/handover-requests';
  const WORK_ID='WORK-00020', WORK_TITLE='신차 출시 캠페인 콘텐츠 현지화 및 배포 준비';
  const CASE_TASKS=[
@@ -144,16 +144,37 @@
  function closePanel(){const n=el('handover-demo-panel');if(n){n.classList.add('hidden');n.classList.remove('flex');}}
  function message(s){if(typeof toast==='function')toast(s);else alert(s);}
  function selectedWork(){return (IMPORT_DATA[importState.person]||[]).some(g=>g.project===WORK_TITLE&&g.tasks.every(t=>importState.selected.has(g.project+'::'+t)));}
+ // Work titles and tasks from provided BMW synthetic Slack dataset (demo-only).
+ const RELATED_PERSON_WORKS={
+  '박서연':[
+   {project:'신차 출시 캠페인 콘텐츠 현지화 및 배포 준비',tasks:['본사 원본 최신본 확인','국내 사양 및 필수 표기 검증','원고 제목 및 CTA 표현 검토','딜러 배포 자료 준비']},
+   {project:'전기차 배터리 보증 딜러 설명 자료',tasks:['경쟁사 비교·배터리 보증 초안 취합','보증 조건·기술 표현·딜러 FAQ 검토','보증·기술·딜러 검토 반영 및 설명 자료 확정','딜러 배포·질문 회수']}
+  ],
+  '최민준':[
+   {project:'딜러 고객 초청 시승 행사 성과 분석 및 후속 캠페인 선정',tasks:['딜러별 참가자·상담 전환 데이터 취합','누락 딜러·이전 행사 성과 기준 확인','성과 우수 딜러·고객군 선정','후속 캠페인 대상 확정·공유']},
+   {project:'월간 딜러 피드백 보고',tasks:['딜러 질문·불만·처리 상태 월간 취합','보증 확인 건·기술 검토 건 분류','지난 보고서 양식에 이번 달 결과 반영','월간 보고서 배포·미결 건 이월']}
+  ]
+ };
  function seed(){
   if(typeof IMPORT_DATA==='undefined')return;
   const groups=IMPORT_DATA['김지수']||(IMPORT_DATA['김지수']=[]);
   if(!groups.some(g=>g.project===WORK_TITLE))groups.unshift({project:WORK_TITLE,tasks:CASE_TASKS.map(x=>x[1])});
+  for(const [name,works] of Object.entries(RELATED_PERSON_WORKS)){
+   const existing=IMPORT_DATA[name]||(IMPORT_DATA[name]=[]);
+   for(const w of works)if(!existing.some(x=>x.project===w.project))existing.push({project:w.project,tasks:[...w.tasks]});
+  }
  }
  async function received(){
-  if(actor!=='원이정')return inbox();
+  if(actor==='팀장'){
+   panel('인수받은 업무','<div class="rounded-xl bg-[#F8F9FA] p-5 text-[13px]">팀장 시연 계정에는 인수받은 업무가 없습니다.</div>');
+   return;
+  }
+  const personId=PERSON_IDS[actor];
+  if(!personId)return message('현재 사용자 정보를 확인할 수 없습니다.');
   try{
-   const rows=(await load()).filter(r=>r.requesterId===PERSON_IDS['원이정']);
-   panel('나의 인수인계 요청',rows.length?rows.map(r=>'<div class="mb-3 rounded-2xl border border-[#E5E8EB] p-4"><div class="flex items-center justify-between gap-2"><b>'+safe(r.owner)+'님의 업무</b><span class="text-[12px]">'+({pending:'승인 대기',approved:'승인 완료',rejected:'반려'}[r.status]||r.status)+'</span></div><div class="mt-2 text-[13px]">'+safe(r.title)+'</div>'+(r.status==='approved'?'<button data-open="'+safe(r.id)+'" class="mt-3 rounded-xl bg-[#3182F6] px-4 py-2 text-[12px] font-bold text-white">이어받은 업무 보기</button>':'')+'</div>').join(''):'<div class="rounded-xl bg-[#F8F9FA] p-5 text-[13px]">요청 내역이 없습니다.</div>');
+   // Only the recipient's own incoming handovers. Never show the owner's sent approvals.
+   const rows=(await load()).filter(r=>r.requesterId===personId);
+   panel('인수받은 업무',rows.length?rows.map(r=>'<div class="mb-3 rounded-2xl border border-[#E5E8EB] p-4"><div class="flex items-center justify-between gap-2"><b>'+safe(r.owner)+'님의 업무</b><span class="text-[12px]">'+({pending:'승인 대기',approved:'승인 완료',rejected:'반려'}[r.status]||r.status)+'</span></div><div class="mt-2 text-[13px]">'+safe(r.title)+'</div>'+(r.status==='approved'?'<button data-open="'+safe(r.id)+'" class="mt-3 rounded-xl bg-[#3182F6] px-4 py-2 text-[12px] font-bold text-white">이어받은 업무 보기</button>':'')+'</div>').join(''):'<div class="rounded-xl bg-[#F8F9FA] p-5 text-[13px]">아직 인수받은 업무가 없습니다.</div>');
    el('handover-demo-panel').querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>viewWork(b.dataset.open));
   }catch(e){message(e.message)}
  }
@@ -225,7 +246,7 @@
   previousFlow();
   const name=el('import-action-title'),summary=el('import-selection-summary'),btn=el('import-action-btn'),slack=el('slack-access-panel');
   if(slack)slack.classList.add('hidden');
-  if(importState.step===1){name.textContent='인수인계 승인 요청';btn.textContent='인수인계 요청 보내기';btn.onclick=requestImportApproval;}
+  if(importState.step===1){name.textContent='인수인계 승인 요청';const supported=importState.person==='김지수';btn.textContent=supported?'인수인계 요청 보내기':'관련 Work 확인 (시연)';btn.onclick=supported?requestImportApproval:()=>message('박서연·최민준은 현재 Work 목록 시연만 지원하며, 승인 요청은 김지수의 WORK-00020만 연결되어 있습니다.');}
   else {name.textContent='승인 대기';summary.textContent='김지수님이 승인해야 업무를 이어받을 수 있어요.';btn.textContent='요청 상태 확인';btn.onclick=()=>{closeImport();received()};}
  };
  requestImportApproval=async function(){
@@ -244,7 +265,7 @@
  const existingInbox=el('handover-demo-inbox'),existingReceived=el('handover-demo-received');
  el('handover-demo-logout').onclick=()=>{authToken=null;if(verifiedMode){window.clearVerifiedDemoData?.();window.location.assign('/api/demo/auth/logout');return;}closePanel();if(typeof closeImport==='function')closeImport();el('login-screen').classList.remove('hidden');};
  if(existingInbox)existingInbox.onclick=inbox;
- if(existingReceived)existingReceived.onclick=()=>{if(actor==='원이정')received();else inbox();};
+ if(existingReceived)existingReceived.onclick=received;
  const steps=document.querySelectorAll('#import-steps [data-step] div:last-child');
  ['업무 선택','승인 요청','승인 확인','업무 확인'].forEach((x,i)=>{if(steps[i])steps[i].textContent=x});
  const sub=document.querySelector('#import-modal p');
@@ -311,7 +332,7 @@
  function showGate(mode){
   const briefing=el('briefing-view');
   if(!briefing)return;
-  const locked=actor==='원이정'&&mode!=='approved';
+  const locked=actor!=='팀장'&&mode!=='approved';
   briefing.classList.toggle('handover-locked',locked);
   let gate=el('handover-approval-gate');
   if(!gate){
@@ -329,7 +350,9 @@
     rejected:{icon:'block',tag:'요청 반려',title:'인수인계 요청이 반려됐어요',description:'업무는 표시되지 않습니다. 필요한 경우 김지수님에게 다시 요청해 주세요.',action:'다시 요청하기'},
     error:{icon:'wifi_off',tag:'확인 실패',title:'승인 상태를 불러오지 못했어요',description:'승인 여부를 확인할 수 없어 업무를 숨겼습니다. 다시 조회해 주세요.',action:'요청 내역 확인'}
    };
-   const config=configs[mode]||configs.empty;
+   const config=actor==='김지수'&&mode!=='approved'&&mode!=='error'&&mode!=='checking'
+    ?{icon:'inventory_2',tag:'인수 내역 없음',title:'아직 인수받은 업무가 없어요',description:'김지수님이 다른 구성원에게서 승인받아 인수한 업무가 없습니다.'}
+    :configs[mode]||configs.empty;
    gate.innerHTML='<div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F2F7FF] text-[#3182F6]"><span class="material-symbols-outlined text-[30px]">'+config.icon+'</span></div>'+
    '<div class="mt-5"><span class="inline-flex rounded-full bg-[#F2F7FF] px-3 py-1.5 text-[11px] font-bold text-[#1B64DA]">'+config.tag+'</span></div>'+
    '<h2 class="mt-4 text-[22px] font-bold text-[#191F28]">'+config.title+'</h2>'+
@@ -338,15 +361,17 @@
    el('handover-gate-refresh').onclick=()=>refreshGate();
   }
   const header=el('header-kicker');
-  if(header&&actor==='원이정')header.textContent=locked?'인수인계 현황':'김지수님에게 이어받은 업무';
+  if(header&&actor!=='팀장')header.textContent='인수받은 업무';
   const heading=el('header-title');
-  if(heading&&actor==='원이정')heading.textContent=locked?'업무 이어받기':'내 업무 브리핑';
+  if(heading&&actor!=='팀장')heading.textContent=locked?'인수받은 업무 없음':'인수받은 업무';
  }
  async function refreshGate(){
-  if(actor!=='원이정'){showGate('approved');return;}
+  if(actor==='팀장'){showGate('approved');return;}
+  const requesterId=PERSON_IDS[actor];
+  if(!requesterId){showGate('empty');return;}
   showGate('checking');
   try{
-   const records=(await load()).filter(r=>r.requesterId===PERSON_IDS['원이정']&&r.sourceId===PERSON_IDS['김지수']&&r.workId===WORK_ID);
+   const records=(await load()).filter(r=>r.requesterId===requesterId);
    const approved=records.some(r=>r.status==='approved');
    const pending=records.some(r=>r.status==='pending');
    const rejected=records.some(r=>r.status==='rejected');
@@ -411,7 +436,7 @@
       actor=ACCOUNT.includes(selection)?selection:'원이정';
     }
     updateSidebarIdentity();
-    showGate(actor==='원이정'?'checking':'approved');
+    showGate(actor==='팀장'?'approved':'checking');
     previousEnterApp();
     if(typeof window.activateManagerWorkspace==='function')
       await window.activateManagerWorkspace(actor==='팀장'&&!verifiedMode);
@@ -420,7 +445,7 @@
       await inbox();
     }else if(actor==='김지수'){
       setMainView('briefing');
-      await inbox();
+      await refreshGate();
     }else if(actor==='원이정'){
       await refreshGate();
     }
