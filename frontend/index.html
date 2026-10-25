@@ -906,13 +906,15 @@ const PERSONAL_WORKS_BY_ACTOR={
 let personalWorkActor='원이정';
 function setPersonalWorkActor(name){
  personalWorkActor=name;
- // No static fallback after login: loading is always initiated by the user.
- HANDOVER_WORKS.splice(0,HANDOVER_WORKS.length);
+ // Restore the original Won I-jeong dashboard until the user explicitly loads DB data.
+ // Never substitute another employee's work as the initial personal dashboard.
+ const initial=name==='원이정'?ORIGINAL_PERSONAL_WORKS:[];
+ HANDOVER_WORKS.splice(0,HANDOVER_WORKS.length,...initial.map(w=>({...w,tasks:[...w.tasks]})));
  const select=document.getElementById('handover-project-select');
- if(select)select.replaceChildren();
+ if(select)select.innerHTML=initial.map(w=>'<option value="'+w.id+'">'+escSvg(w.name)+'</option>').join('');
  handoverSelectionWork=null;
  const stamp=document.getElementById('handover-sync-time');
- if(stamp)stamp.textContent='불러오기 전';
+ if(stamp)stamp.textContent=name==='원이정'?'기존 나의 업무 · DB 조회 전':'불러오기 전';
  if(typeof renderMyWork==='function')renderMyWork();
 }
 async function loadPersonalWorksFromSupabase(){
