@@ -88,10 +88,12 @@
   ['TASK-00080','딜러 이미지·UTM·배포 대상 준비 및 포털 반영']
  ];
  let actor='원이정';
+ let verifiedMode=false;
+ let authToken=null;
  const el=id=>document.getElementById(id);
  const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  async function api(path='',method='GET',data=null){
-  const res=await fetch(API+path,{method,credentials:'same-origin',cache:'no-store',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined});
+  const res=await fetch(API+path,{method,credentials:'same-origin',cache:'no-store',headers:{...(data?{'Content-Type':'application/json'}:{}),...(authToken?{'X-Handover-Access-Token':authToken}:{})},body:data?JSON.stringify(data):undefined});
   if(!res.ok)throw new Error('인수인계 서버 요청 실패 (HTTP '+res.status+')');
   return res.json();
  }
@@ -210,7 +212,7 @@
   const bar=document.createElement('div');bar.id='handover-demo-toolbar';bar.className='flex flex-wrap items-center gap-2';
   bar.innerHTML='<button id="handover-demo-inbox" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">요청·승인함</button><button id="handover-demo-received" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">이어받은 업무</button><button id="handover-demo-logout" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">계정 나가기</button>';
   header.appendChild(bar);
-  el('handover-demo-logout').onclick=()=>{closePanel();if(typeof closeImport==='function')closeImport();el('login-screen').classList.remove('hidden');};
+  el('handover-demo-logout').onclick=()=>{authToken=null;closePanel();if(typeof closeImport==='function')closeImport();el('login-screen').classList.remove('hidden');};
   el('handover-demo-inbox').onclick=inbox;
   el('handover-demo-received').onclick=()=>{if(actor==='원이정')received();else inbox();};
  }
@@ -296,25 +298,45 @@
    const approved=records.some(r=>r.status==='approved');
    const pending=records.some(r=>r.status==='pending');
    const rejected=records.some(r=>r.status==='rejected');
+   if(approved&&verifiedMode&&authToken&&typeof window.loadVerifiedDemoData==='function')await window.loadVerifiedDemoData(authToken);
    showGate(approved?'approved':pending?'pending':rejected?'rejected':'empty');
    if(approved&&typeof render==='function')render();
   }catch(e){showGate('error');message('승인 상태를 확인하지 못했습니다. '+e.message);}
  }
  const previousEnterApp=enterApp;
- enterApp=function(){
+ fetch('/api/demo/auth/config',{credentials:'same-origin',cache:'no-store'})
+  .then(response=>response.json())
+  .then(config=>{
+    verifiedMode=!!config.verified_mode;
+    const fields=el('verified-login-fields');
+    if(fields)fields.classList.toggle('hidden',!verifiedMode);
+  }).catch(()=>{message('인증 설정 조회에 실패했습니다.');});
+ enterApp=async function(){
   const selection=loginSelect?.value||'원이정';
   actor=ACCOUNT.includes(selection)?selection:'원이정';
-  // Install the approval gate before removing the login overlay.
+  if(verifiedMode){
+    const email=el('verified-login-email')?.value.trim();
+    const password=el('verified-login-password')?.value;
+    if(!email||!password)return message('Supabase 이메일과 비밀번호를 입력해 주세요.');
+    try{
+      const res=await fetch('/api/demo/auth/login',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({email,password,selected_person:actor})});
+      if(!res.ok)throw new Error('계정 인증 실패 (HTTP '+res.status+')');
+      const session=await res.json();
+      authToken=session.access_token;
+      if(!authToken)throw new Error('인증 토큰이 없습니다.');
+      await window.loadVerifiedDemoData(authToken);
+    }catch(error){authToken=null;message(error.message);return;}
+  }
   showGate(actor==='원이정'?'checking':'approved');
   previousEnterApp();
-  if(actor==='원이정')refreshGate();
-  const role=el('handover-login-role');if(role)role.textContent=actor==='팀장'?'팀장':'일반사원';
-  if(actor==='팀장'){
-   if(typeof setMainView==='function')setMainView('briefing');
-   inbox();
-  }else if(actor==='김지수'){
-   if(typeof setMainView==='function')setMainView('briefing');
-   inbox();
+  if(actor==='원이정')await refreshGate();
+  const role=el('handover-login-role');
+  if(role)role.textContent=actor==='팀장'?'팀장':'일반사원';
+  if(actor==='팀장'||actor==='김지수'){
+    if(typeof setMainView==='function')setMainView('briefing');
+    await inbox();
   }
  };
  const firstOpenTask=Object.keys(TASKS).find(id=>TASKS[id]?.status!=='완료');
