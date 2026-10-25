@@ -78,6 +78,7 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
     <button onclick="openAsk()" title="업무 Agent에게 질문하기" aria-label="업무 Agent에게 질문하기" class="w-full px-3 py-2.5 rounded-xl hover:bg-[#F8F9FA] text-[#6B7684] flex items-center gap-2.5 text-[13px] font-medium"><span class="material-symbols-outlined text-[18px]">smart_toy</span>질문하기 <span class="ml-auto rounded-full bg-[#F2F7FF] px-2 py-0.5 text-[10px] text-[#3182F6]">Agent</span></button>
   </nav>
   <div class="mt-auto p-3">
+    <button type="button" id="handover-demo-logout" class="w-full mb-2.5 rounded-xl border border-[#DDE3EA] bg-white px-3 py-2.5 text-left text-[12px] font-semibold text-[#4E5968] flex items-center gap-2 hover:bg-[#F8F9FA]"><span class="material-symbols-outlined text-[18px]">logout</span>계정 나가기</button>
     <div class="rounded-2xl bg-[#F8F9FA] p-3 flex items-center gap-3">
       <div id="sidebar-user-avatar" class="w-9 h-9 rounded-full bg-[#E8F3FF] text-[#3182F6] flex items-center justify-center font-bold">원</div>
       <div class="min-w-0 flex-1"><div id="sidebar-user-name" class="text-[13px] font-bold">원이정</div><div id="sidebar-user-id" class="text-[11px] text-[#8B95A1]">U0C20G9MRML</div></div>
@@ -93,8 +94,8 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
       <button onclick="openImport()" title="담당자 업무 가져오기" aria-label="담당자 업무 가져오기" class="w-9 h-9 rounded-xl border border-[#DDE3EA] bg-white text-[#4E5968] hover:bg-[#F8F9FA] flex items-center justify-center transition">
         <span class="material-symbols-outlined text-[19px]">search</span>
       </button>
-      <span class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#EAFBF4] text-[#008B5E] text-[11px] font-bold"><span class="material-symbols-outlined text-[14px]">key</span>시연 접속</span>
-      <div id="demo-admin-switch" class="flex items-center gap-2"><button type="button" id="admin-toggle" onclick="toggleAdminMode()" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold text-[#4E5968]">관리자 모드</button></div>
+      
+      
       <button onclick="openAsk()" title="업무 Agent에게 질문하기" aria-label="업무 Agent에게 질문하기" class="h-9 px-3 rounded-xl bg-[#191F28] text-white text-[12px] font-bold flex items-center gap-1.5"><span class="material-symbols-outlined text-[16px]">auto_awesome</span>질문하기 <span class="text-[10px] opacity-70">Agent</span></button>
     </div>
     <div id="model-meta" class="absolute bottom-0 right-6 lg:right-8 translate-y-full text-[10px] text-[#8B95A1] pt-1 text-right" aria-live="polite">모델 학습일 · 조회 중</div>
