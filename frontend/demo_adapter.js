@@ -11,7 +11,20 @@
   function attach(data) {
     const works = data.works || [], tasks = data.tasks || [], events = data.events || [];
     const edges = data.edges || [], persons = data.persons || [], messages = data.slack_messages || [];
-    if (!works.length || !tasks.length) throw new Error('Supabase에 시연 Work 또는 Task가 없습니다.');
+    if (!works.length || !tasks.length) {
+      PROJECTS.splice(0, PROJECTS.length);
+      Object.keys(TASKS).forEach(k => delete TASKS[k]);
+      Object.keys(SLACK_EVIDENCE).forEach(k => delete SLACK_EVIDENCE[k]);
+      Object.keys(FILES).forEach(k => delete FILES[k]);
+      PEOPLE.splice(0, PEOPLE.length);
+      HANDOVER_WORKS.splice(0, HANDOVER_WORKS.length);
+      Object.keys(IMPORT_DATA).forEach(k => delete IMPORT_DATA[k]);
+      const selector=root.getElementById('project-select');
+      if(selector)selector.innerHTML='<option value="all">승인된 업무 없음</option>';
+      state.project='all';state.task=null;loaded=true;
+      render();
+      return;
+    }
     const workMap = byId(works, 'work_id'), taskMap = byId(tasks, 'task_id');
     const eventMap = byId(events, 'event_id'), msgMap = byId(messages, 'message_id');
     const peopleMap = byId(persons, 'person_id');
@@ -159,12 +172,22 @@
   const loginHelp = root.querySelector('#login-screen p');
   if(loginHelp) loginHelp.textContent = '시연 접속은 Railway 서버 인증으로 보호됩니다. YubiKey 실제 인증은 연결 전입니다.';
 
-  fetch('/api/demo/data', {credentials:'same-origin', cache:'no-store'})
-    .then(async r => {if(!r.ok) throw new Error(`백엔드 연결 실패 (HTTP ${r.status})`);return r.json()})
-    .then(attach)
-    .catch(err => {
+  window.loadVerifiedDemoData = async function(token) {
+    const response = await fetch('/api/demo/data',{credentials:'same-origin',cache:'no-store',headers:{'X-Handover-Access-Token':token}});
+    if(!response.ok)throw new Error('권한 확인 실패 (HTTP '+response.status+')');
+    attach(await response.json());
+  };
+  fetch('/api/demo/auth/config',{credentials:'same-origin',cache:'no-store'})
+    .then(async response => {if(!response.ok)throw new Error('인증 설정 조회 실패');return response.json();})
+    .then(config => {
+      if(config.verified_mode)return; // Requires signed-in, verified user before querying Work.
+      return fetch('/api/demo/data',{credentials:'same-origin',cache:'no-store'})
+        .then(async response=>{if(!response.ok)throw new Error('백엔드 연결 실패 (HTTP '+response.status+')');return response.json();})
+        .then(attach);
+    })
+    .catch(err=>{
       console.error(err);
-      const p = root.querySelector('#login-screen p');
-      if(p) p.textContent = `데이터 로딩 실패: ${err.message}. Railway 환경변수와 Supabase를 확인하세요.`;
+      const p=root.querySelector('#login-screen p');
+      if(p)p.textContent='데이터 로딩 실패: '+err.message;
     });
 })();
