@@ -37,7 +37,7 @@ def _read(token):
         if not hmac.compare_digest(mac,valid):
             return None
         data=json.loads(base64.urlsafe_b64decode(body+"="*((-len(body))%4)))
-        if not isinstance(data,dict) or not 0<time.time()-int(data["iat"])<SESSION_SECONDS:
+        if not isinstance(data,dict) or not 0<=time.time()-int(data["iat"])<SESSION_SECONDS:
             return None
         return data
     except (ValueError,KeyError,TypeError):
@@ -101,6 +101,8 @@ def callback(code: str,state: str,request: Request):
     persons=store.request("persons",params={"select":"person_id,name,team","person_id":"eq."+uid,"limit":1})
     if not persons:
         raise HTTPException(403,"Slack person_id is not registered in persons")
+    if persons[0].get('team','').strip().casefold() != 'marketing':
+        raise HTTPException(403,"Only Marketing team members may sign in for this demo")
     response=RedirectResponse("/?slack_login=1",status_code=303)
     response.delete_cookie(STATE)
     response.set_cookie(SESSION,_signed({"person_id":uid,"team":team,"iat":int(time.time())}),secure=True,httponly=True,samesite="lax",max_age=SESSION_SECONDS)
