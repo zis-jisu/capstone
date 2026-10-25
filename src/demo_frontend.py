@@ -191,3 +191,85 @@ def demo_logo():
     if not logo.is_file():
         raise HTTPException(404, 'Logo asset not uploaded yet')
     return FileResponse(logo, media_type='image/png')
+
+
+# Marketing handover approval DEMO API.
+# HTTP Basic protects the site but does NOT establish person identity.
+# The actor passed here is untrusted and is accepted for the demonstration only.
+# Replace with a verified login/session and server-side team role checks before production.
+JISOO_ID = 'U0C22C8M742'
+WON_ID = 'U0C20G9MRML'
+MARKETING_MANAGER_DEMO_ID = 'DEMO-MARKETING-MANAGER'
+WORK_DEMO_ID = 'WORK-00020'
+
+class DemoHandoverRequest(BaseModel):
+    requester_id: str = Field(min_length=1, max_length=40)
+    source_person_id: str = Field(min_length=1, max_length=40)
+    work_id: str = Field(min_length=1, max_length=80)
+
+class DemoHandoverDecision(BaseModel):
+    actor_id: str = Field(min_length=1, max_length=40)
+    status: str = Field(pattern='^(approved|rejected)$')
+
+def _handover_db(method='GET', params=None, payload=None):
+    store = SupabaseStore()
+    url = store.url + '/rest/v1/handover_requests'
+    if params:
+        url += '?' + urllib.parse.urlencode(params)
+    data = json.dumps(payload).encode('utf-8') if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        'apikey': store.key, 'Authorization': 'Bearer ' + store.key,
+        'Content-Type': 'application/json', 'Prefer': 'return=representation',
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            return json.loads(res.read() or b'[]')
+    except urllib.error.HTTPError as exc:
+        if exc.code == 409:
+            raise HTTPException(409, 'Already pending') from None
+        raise HTTPException(502, 'Handover storage error') from None
+    except urllib.error.URLError:
+        raise HTTPException(502, 'Handover database unreachable') from None
+
+@app.get('/api/demo/handover-requests')
+def demo_handover_list(_=Depends(demo_auth)):
+    return {'requests': _handover_db(params={'select': '*', 'order': 'created_at.desc', 'limit': '100'})}
+
+@app.post('/api/demo/handover-requests', status_code=201)
+def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth)):
+    # Explicit one-scenario scope for the UI prototype.
+    if (body.requester_id, body.source_person_id, body.work_id) != (WON_ID, JISOO_ID, WORK_DEMO_ID):
+        raise HTTPException(422, 'Unsupported demo handover')
+    rows = _handover_db('POST', payload={
+        'requester_id': body.requester_id,
+        'source_person_id': body.source_person_id,
+        'work_id': body.work_id,
+        'status': 'pending',
+    })
+    return {'request': rows[0]}
+
+@app.post('/api/demo/handover-requests/{request_id}/decision')
+def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(demo_auth)):
+    from uuid import UUID
+    try:
+        UUID(request_id)
+    except ValueError:
+        raise HTTPException(422, 'Invalid request ID') from None
+    if body.actor_id not in (JISOO_ID, MARKETING_MANAGER_DEMO_ID):
+        raise HTTPException(403, 'Demo actor cannot approve')
+    rows = _handover_db(params={
+        'select': '*', 'request_id': 'eq.' + request_id, 'status': 'eq.pending',
+    })
+    if not rows:
+        raise HTTPException(409, 'Request is not pending')
+    if rows[0]['source_person_id'] != JISOO_ID:
+        raise HTTPException(403, 'Outside of demo team')
+    patch = {'status': body.status, 'approved_by': body.actor_id,
+             'verification_method': 'demo_yubikey' if body.status == 'approved' else None,
+             'approved_at': datetime.now(timezone.utc).isoformat() if body.status == 'approved' else None}
+    updated = _handover_db('PATCH', params={
+        'request_id': 'eq.' + request_id, 'status': 'eq.pending',
+    }, payload=patch)
+    if not updated:
+        raise HTTPException(409, 'Request was already processed')
+    return {'request': updated[0]}
