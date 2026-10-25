@@ -596,6 +596,17 @@ function renderPeopleGraph(t){
       ${sync.length?`<span class="ml-auto px-2 py-1 rounded-full bg-[#EAFBF4] text-[#008B5E] font-bold">${sync.join(' + ')} 연동됨</span>`:''}
     </div>`;
 }
+// Display-only: break the long verified next-action sentence into readable milestones.
+function flowDisplaySteps(t){
+ const steps=Array.isArray(t.flow)?t.flow:[];
+ const action=String(steps[1]||'');
+ if(steps.length===3 && action.includes('UTM 링크') &&
+    action.includes('배포 대상') && action.includes('제목·CTA') &&
+    action.includes('딜러 포털') && action.includes('배포 승인')){
+  return [''+steps[0],'UTM 링크·배포 대상 확인','제목·CTA 최종 확정','딜러 포털 본문 반영','배포 승인 확인'];
+ }
+ return steps;
+}
 function renderDetail(){
  const t=currentTask();
  const el=document.getElementById('task-detail');
@@ -643,7 +654,7 @@ function renderDetail(){
 
      <div class="mt-5">
        <div class="text-[12px] font-bold text-[#6B7684] mb-3">다음 흐름</div>
-       <div class="flex items-center gap-2 overflow-x-auto pb-1">${t.flow.map((x,i)=>`${i?'<div class="flow-line"></div>':''}<div class="flow-node ${i===0?'active':''} shrink-0 min-w-[118px] rounded-2xl border border-[#DDE3EA] px-4 py-3 bg-white"><div class="text-[10px] text-[#8B95A1]">${i===0?'현재':i===t.flow.length-1?'마지막':'다음'}</div><div class="text-[12px] font-bold mt-1">${x}</div></div>`).join('')}</div>
+       <div class="flex items-center gap-2 overflow-x-auto pb-1">${flowDisplaySteps(t).map((x,i,items)=>`${i?'<div class="flow-line"></div>':''}<div class="flow-node ${i===0?'active':''} shrink-0 min-w-[118px] max-w-[230px] rounded-2xl border border-[#DDE3EA] px-4 py-3 bg-white"><div class="text-[10px] text-[#8B95A1]">${i===0?'현재':i===items.length-1?'마지막':'다음'}</div><div class="text-[12px] font-bold mt-1 leading-relaxed break-keep whitespace-normal">${x}</div></div>`).join('')}</div>
      </div>
    </div>
 
