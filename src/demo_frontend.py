@@ -193,6 +193,8 @@ def demo_logo():
     return FileResponse(logo, media_type='image/png')
 
 
+from src.handover_auth import verified_actor, can_approve
+
 # Marketing handover approval DEMO API.
 # HTTP Basic protects the site but does NOT establish person identity.
 # The actor passed here is untrusted and is accepted for the demonstration only.
@@ -232,11 +234,19 @@ def _handover_db(method='GET', params=None, payload=None):
         raise HTTPException(502, 'Handover database unreachable') from None
 
 @app.get('/api/demo/handover-requests')
-def demo_handover_list(_=Depends(demo_auth)):
-    return {'requests': _handover_db(params={'select': '*', 'order': 'created_at.desc', 'limit': '100'})}
+def demo_handover_list(_=Depends(demo_auth), actor=Depends(verified_actor)):
+    rows = _handover_db(params={'select': '*', 'order': 'created_at.desc', 'limit': '100'})
+    if actor:
+        if actor['role'] == 'manager':
+            rows = [r for r in rows if r['source_person_id'] == JISOO_ID]
+        else:
+            rows = [r for r in rows if actor['person_id'] in (r['requester_id'], r['source_person_id'])]
+    return {'requests': rows}
 
 @app.post('/api/demo/handover-requests', status_code=201)
-def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth)):
+def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth), actor=Depends(verified_actor)):
+    if actor and actor['person_id'] != body.requester_id:
+        raise HTTPException(403, 'Cannot request on behalf of another person')
     # Explicit one-scenario scope for the UI prototype.
     if (body.requester_id, body.source_person_id, body.work_id) != (WON_ID, JISOO_ID, WORK_DEMO_ID):
         raise HTTPException(422, 'Unsupported demo handover')
@@ -249,12 +259,14 @@ def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth)):
     return {'request': rows[0]}
 
 @app.post('/api/demo/handover-requests/{request_id}/decision')
-def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(demo_auth)):
+def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(demo_auth), actor=Depends(verified_actor)):
     from uuid import UUID
     try:
         UUID(request_id)
     except ValueError:
         raise HTTPException(422, 'Invalid request ID') from None
+    if actor and actor['person_id'] != body.actor_id:
+        raise HTTPException(403, 'Actor mismatch')
     if body.actor_id not in (JISOO_ID, MARKETING_MANAGER_DEMO_ID):
         raise HTTPException(403, 'Demo actor cannot approve')
     rows = _handover_db(params={
@@ -262,6 +274,8 @@ def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(
     })
     if not rows:
         raise HTTPException(409, 'Request is not pending')
+    if actor and not can_approve(actor, rows[0]['source_person_id']):
+        raise HTTPException(403, 'Approval permission denied')
     if rows[0]['source_person_id'] != JISOO_ID:
         raise HTTPException(403, 'Outside of demo team')
     patch = {'status': body.status, 'approved_by': body.actor_id,
