@@ -250,25 +250,51 @@
  const sub=document.querySelector('#import-modal p');
  if(sub)sub.textContent='같은 팀 구성원의 Work를 선택해 인수인계를 요청합니다. 승인 전에는 업무가 전달되지 않습니다.';
  seed();
- // Keep completed tasks available, but folded by default in the existing task list.
- const originalRenderTaskList=renderTaskList;
- renderTaskList=function(){
-  originalRenderTaskList();
-  const holder=el('task-list');
-  if(!holder)return;
-  const ids=filteredProjectTasks();
-  const buttons=[...holder.children];
-  const done=ids.map((id,i)=>({id,button:buttons[i]})).filter(x=>x.button&&TASKS[x.id]?.status==='완료');
-  if(!done.length)return;
-  const section=document.createElement('details');section.className='rounded-2xl border border-[#E5E8EB] bg-[#F8F9FA] p-3';
-  const label=document.createElement('summary');label.className='cursor-pointer text-[13px] font-bold text-[#6B7684]';
-  label.textContent='완료된 업무 '+done.length+'건 · 펼쳐보기';
-  section.appendChild(label);
-  const inner=document.createElement('div');inner.className='mt-3 space-y-3';
-  done.forEach(item=>inner.appendChild(item.button));
-  section.appendChild(inner);
-  holder.prepend(section);
- };
+ // Render a single completed-task accordion even if adapter initialization runs twice.
+ // Only direct task buttons may enter the accordion (never an existing <details>).
+ if(!window.__linkingCompletedTaskFoldInstalled){
+  window.__linkingCompletedTaskFoldInstalled=true;
+  const baseRenderTaskList=renderTaskList;
+  renderTaskList=function(){
+   baseRenderTaskList();
+   const holder=el('task-list');
+   if(!holder)return;
+   const ids=filteredProjectTasks();
+   const completedIds=ids.filter(id=>TASKS[id]?.status==='완료');
+   // Older wrapping layers can introduce nested accordions: flatten to the actual cards.
+   const allCards=[...holder.querySelectorAll('button[onclick^="selectTask("]')];
+   const cards=new Map();
+   for(const id of ids){
+    const card=allCards.find(b=>b.getAttribute('onclick')==="selectTask('"+id+"')");
+    if(card)cards.set(id,card);
+   }
+   // Replace (not append) the list with exactly one accordion and the remaining cards.
+   holder.replaceChildren();
+   if(completedIds.length){
+    const section=document.createElement('details');
+    section.id='completed-tasks-accordion';
+    section.className='rounded-2xl border border-[#E5E8EB] bg-[#F8F9FA] p-3';
+    const label=document.createElement('summary');
+    label.className='cursor-pointer list-none text-[13px] font-bold text-[#6B7684]';
+    label.textContent='완료된 업무 '+completedIds.length+'건 · 펼쳐보기';
+    section.appendChild(label);
+    const inner=document.createElement('div');
+    inner.className='mt-3 space-y-3';
+    for(const id of completedIds){if(cards.has(id))inner.appendChild(cards.get(id));}
+    section.appendChild(inner);
+    holder.appendChild(section);
+   }
+   for(const id of ids){
+    if(!completedIds.includes(id)&&cards.has(id))holder.appendChild(cards.get(id));
+   }
+   if(!ids.length){
+    const empty=document.createElement('div');
+    empty.className='rounded-2xl bg-[#F8F9FA] p-5 text-[13px] text-[#8B95A1]';
+    empty.textContent='현재 필터에 해당하는 업무가 없습니다.';
+    holder.appendChild(empty);
+   }
+  };
+ }
  const loginSelect=el('handover-login-account');
  if(loginSelect){
   loginSelect.addEventListener('change',()=>{
