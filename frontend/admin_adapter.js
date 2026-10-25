@@ -212,7 +212,7 @@
   const bar=document.createElement('div');bar.id='handover-demo-toolbar';bar.className='flex flex-wrap items-center gap-2';
   bar.innerHTML='<button id="handover-demo-inbox" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">요청·승인함</button><button id="handover-demo-received" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">이어받은 업무</button><button id="handover-demo-logout" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">계정 나가기</button>';
   header.appendChild(bar);
-  el('handover-demo-logout').onclick=()=>{authToken=null;closePanel();if(typeof closeImport==='function')closeImport();el('login-screen').classList.remove('hidden');};
+  el('handover-demo-logout').onclick=()=>{authToken=null;if(verifiedMode&&window.clearVerifiedDemoData)window.clearVerifiedDemoData();const password=el('verified-login-password');if(password)password.value='';closePanel();if(typeof closeImport==='function')closeImport();el('login-screen').classList.remove('hidden');};
   el('handover-demo-inbox').onclick=inbox;
   el('handover-demo-received').onclick=()=>{if(actor==='원이정')received();else inbox();};
  }
