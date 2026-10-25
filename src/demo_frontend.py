@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from src.db import SupabaseStore
+from src.handover_auth import verified_actor, can_approve, secure_handover_enabled
 from scripts.export_ml_rpc import fetch_graph
 from src.frontend_api import app
 
@@ -42,17 +43,61 @@ def demo_adapter(_=Depends(demo_auth)):
 
 
 @app.get('/api/demo/data', include_in_schema=False)
-def demo_data(_=Depends(demo_auth)):
+def demo_data(_=Depends(demo_auth), actor=Depends(verified_actor)):
     store = SupabaseStore()
     snapshot = store.snapshot()  # persons / events / tasks / works / edges
     messages = store.request('slack_messages', params={'select': '*', 'order': 'slack_ts.asc', 'limit': 200})
     graph = fetch_graph()  # existing graph-team Supabase RPC with tensor validation
+    if actor:
+        # In verified mode, an employee may only retrieve an approved Work.
+        # Supervisors and the original handover source can review the source dataset.
+        if actor['role'] != 'manager' and actor['person_id'] != 'U0C22C8M742':
+            grants = _handover_db(params={
+                'select': 'work_id',
+                'requester_id': 'eq.' + actor['person_id'],
+                'status': 'eq.approved',
+            })
+            allowed_work_ids = {g['work_id'] for g in grants}
+            snapshot, messages = _filter_work_data(snapshot, messages, allowed_work_ids)
+        # Graph ML metadata is summary only; no raw graph nodes are exposed here.
     return {
         **snapshot,
         'slack_messages': messages,
         'graph': {'metadata': graph['metadata'], 'validation': graph['validation']},
         'source': 'Supabase (MCP/LLM-processed Slack demo)',
     }
+
+def _filter_work_data(snapshot, messages, allowed_work_ids):
+    """Keep only evidence attached to authorized Works, never all persons/events."""
+    permitted_works = {w['work_id'] for w in snapshot['works']
+                       if w['work_id'] in allowed_work_ids}
+    edges = snapshot['edges']
+    task_ids = {e['target_id'] for e in edges
+                if e['source_type'] == 'Work' and e['source_id'] in permitted_works
+                and e['relation'] == 'HAS_TASK'}
+    event_ids = {e['target_id'] for e in edges
+                 if e['source_type'] == 'Task' and e['source_id'] in task_ids
+                 and e['relation'] == 'HAS_EVENT'}
+    person_ids = {e['source_id'] for e in edges
+                  if e['source_type'] == 'Person' and e['target_id'] in task_ids | event_ids}
+    scoped_edges = [e for e in edges if (
+        (e['source_type'] == 'Work' and e['source_id'] in permitted_works and e['target_id'] in task_ids)
+        or (e['source_type'] == 'Task' and e['source_id'] in task_ids
+            and ((e['target_type'] == 'Event' and e['target_id'] in event_ids)
+                 or (e['target_type'] == 'Task' and e['target_id'] in task_ids)))
+        or (e['source_type'] == 'Person' and e['source_id'] in person_ids
+            and e['target_id'] in task_ids | event_ids))]
+    selected_events = [e for e in snapshot['events'] if e['event_id'] in event_ids]
+    source_ids = {e.get('source_id') for e in selected_events}
+    result = {
+        'works': [w for w in snapshot['works'] if w['work_id'] in permitted_works],
+        'tasks': [t for t in snapshot['tasks'] if t['task_id'] in task_ids],
+        'events': selected_events,
+        'persons': [p for p in snapshot['persons'] if p['person_id'] in person_ids],
+        'edges': scoped_edges,
+    }
+    return result, [m for m in messages if m.get('message_id') in source_ids]
+
 
 # Admin functions are an isolated demo adapter; the existing pipeline remains unchanged.
 import asyncio
@@ -193,8 +238,6 @@ def demo_logo():
     return FileResponse(logo, media_type='image/png')
 
 
-from src.handover_auth import verified_actor, can_approve
-
 # Marketing handover approval DEMO API.
 # HTTP Basic protects the site but does NOT establish person identity.
 # The actor passed here is untrusted and is accepted for the demonstration only.
@@ -265,7 +308,8 @@ def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(
         UUID(request_id)
     except ValueError:
         raise HTTPException(422, 'Invalid request ID') from None
-    if actor and actor['person_id'] != body.actor_id:
+    if actor and not (actor['person_id'] == body.actor_id or
+                      (actor['role'] == 'manager' and body.actor_id == MARKETING_MANAGER_DEMO_ID)):
         raise HTTPException(403, 'Actor mismatch')
     if body.actor_id not in (JISOO_ID, MARKETING_MANAGER_DEMO_ID):
         raise HTTPException(403, 'Demo actor cannot approve')
