@@ -458,35 +458,29 @@ function renderTaskList(){
 function selectTask(id){state.task=id;state.detailTab='timeline';renderTaskList();}
 function setDetailTab(tab){state.detailTab=tab;renderDetail();}
 // UI-only nominal ending: never alter Slack originals, Event evidence or persisted fields.
+// UI-only action titles. Keep underlying Slack evidence and Event fields verbatim.
 function nominalizeTimelineText(value){
- const input=String(value??'').trim().replace(/[.!。]+\s*$/u,'');
- if(!input)return '기록 없음';
- // Keep person/time prefix (e.g. "김지수 · ") intact.
+ const input=String(value??'').trim().replace(/[.!。]+$/u,'');
  const sep=input.lastIndexOf(' · ');
  const prefix=sep>=0?input.slice(0,sep+3):'';
  let action=sep>=0?input.slice(sep+3):input;
  const endings=[
-  [/진행하고\s*있습니다$/u,'진행 중'],[/진행하고\s*있다$/u,'진행 중'],
-  [/확인하고\s*있습니다$/u,'확인 중'],[/확인하고\s*있다$/u,'확인 중'],
-  [/작업하고\s*있습니다$/u,'작업 중'],[/작업하고\s*있다$/u,'작업 중'],
-  [/대기하고\s*있습니다$/u,'대기 중'],[/대기하고\s*있다$/u,'대기 중'],
-  [/진행\s*중입니다$/u,'진행 중'],[/확인\s*중입니다$/u,'확인 중'],
-  [/할\s*예정(?:입니다|이다)$/u,'예정'],[/예정(?:입니다|이다)$/u,'예정'],
-  [/필요(?:합니다|하다)$/u,'필요'],
-  [/해야\s*(?:합니다|한다)$/u,'필요'],
-  [/해\s*주세요$/u,'요청'],[/해주세요$/u,'요청'],
-  [/하기로\s*(?:했습니다|했다|합니다|한다)$/u,'하기로 결정'],
-  [/되었(?:습니다|다)$/u,'완료'],[/됐(?:습니다|다)$/u,'완료']
+  [/진행하고\s*있습니다$/u,'진행 중'],
+  [/확인하고\s*있습니다$/u,'확인 중'],
+  [/작업하고\s*있습니다$/u,'작업 중'],
+  [/예정입니다$/u,'예정'],
+  [/필요합니다$/u,'필요'],
+  [/(작업|검토|확인|수정|작성|진행|처리|요청|제출|완료|전달|반영|배포|준비|검증|발송|정리)(?:했습니다|합니다|했다|한다|하다)$/u,'$1']
  ];
- for(const [pattern,replacement] of endings){
-  if(pattern.test(action)){action=action.replace(pattern,replacement);return prefix+action.trim();}
+ for(const [pattern,result] of endings){
+  if(pattern.test(action)){action=action.replace(pattern,result);break;}
  }
- // Convert action verbs to their noun stems when the terminal phrase is known.
- const stems='작업|확인|검토|완료|진행|전달|반영|공유|요청|제출|준비|수정|작성|처리|정리|배포|수집|취합|검증|확정|발송|점검|적용|대조|보완|교체|업로드|보고|갱신|회신|협의|기록|분석|등록|정산|수신|집계|추적|선정|반출|승인|접수|게시|확보|반납|취소|변경|계획|검수|연결|설치|테스트|발행|추출|수행|통합';
- const verbs=new RegExp('('+stems+')(?:했습니다|하였습니다|했어요|했음|했다|합니다|한다|하다|하고 있음|하는 중|해요|함)
- const past=t.history.map((x,i)=>({kind:'past',label:'기록 '+(i+1),text:x}));
+ return prefix+action.trim();
+}
+function timelineItems(t){
+ const past=(t.history||[]).map((x,i)=>({kind:'past',label:'기록 '+(i+1),text:x}));
  const current={kind:'current',label:'현재 · '+t.status,text:t.next};
- const next=t.after.map((x,i)=>({kind:'next',label:'다음 '+(i+1),text:x}));
+ const next=(t.after||[]).map((x,i)=>({kind:'next',label:'다음 '+(i+1),text:x}));
  return [...past,current,...next];
 }
 const FILES={
