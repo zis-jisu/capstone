@@ -77,8 +77,8 @@
 /* Marketing handover database-backed UI demonstration; account switching is simulated, not authorization. */
 (() => {
  'use strict';
- const TEAM=['김지수','박서연','최민준'], ACCOUNT=['원이정','김지수','팀장'];
- const PERSON_IDS={'원이정':'U0C20G9MRML','김지수':'U0C22C8M742','팀장':'DEMO-MARKETING-MANAGER'};
+ const TEAM=['김지수','박서연','최민준'], ACCOUNT=['원이정','김지수'];
+ const PERSON_IDS={'원이정':'U0C20G9MRML','김지수':'U0C22C8M742'};
  const API='/api/demo/handover-requests';
  const WORK_ID='WORK-00020', WORK_TITLE='신차 출시 캠페인 콘텐츠 현지화 및 배포 준비';
  const CASE_TASKS=[
@@ -143,13 +143,13 @@
  }
   async function inbox(){
   if(actor==='원이정')return received();
-  let all;try{all=(await load()).filter(r=>actor==='팀장'||r.sourceId===PERSON_IDS[actor]);}
+  let all;try{all=(await load()).filter(r=>r.sourceId===PERSON_IDS[actor]);}
   catch(e){return message(e.message)}
   const pending=all.filter(r=>r.status==='pending');
   let body=pending.length?pending.map(r=>'<div class="mb-3 rounded-2xl border p-4"><div class="font-bold">'+safe(r.requester)+' → '+safe(r.owner)+'</div><div class="mt-2 text-[13px]">'+safe(r.title)+'</div><div class="mt-3 flex gap-2"><button data-verify="'+safe(r.id)+'" class="rounded-xl bg-[#3182F6] px-4 py-2 text-[12px] font-bold text-white">가상 YubiKey 승인</button><button data-reject="'+safe(r.id)+'" class="rounded-xl border px-4 py-2 text-[12px]">반려</button></div></div>').join(''):'<div class="rounded-xl bg-[#F8F9FA] p-5 text-[13px]">대기 중인 인수인계 요청이 없습니다.</div>';
   const done=all.filter(r=>r.status!=='pending');
   if(done.length)body+='<h3 class="mt-5 mb-2 font-bold">처리 이력</h3>'+done.map(r=>'<div class="border-b py-2 text-[12px]">'+safe(r.requester)+' → '+safe(r.owner)+' · '+(r.status==='approved'?'승인':'반려')+' · '+safe(r.approvedBy)+'</div>').join('');
-  panel(actor==='팀장'?'팀 인수인계 승인함':'김지수 인수인계 승인함',body);
+  panel('김지수 인수인계 승인함',body);
   el('handover-demo-panel').querySelectorAll('[data-verify]').forEach(b=>b.onclick=()=>verify(b.dataset.verify));
   el('handover-demo-panel').querySelectorAll('[data-reject]').forEach(b=>b.onclick=()=>decide(b.dataset.reject,'rejected'));
  }
@@ -161,7 +161,7 @@
   el('handover-confirm').onclick=()=>decide(id,'approved');
  }
  async function decide(id,status){
-  if(actor!=='팀장'&&actor!=='김지수')return message('처리 권한이 없습니다.');
+  if(actor!=='김지수')return message('처리 권한이 없습니다.');
   try{await api('/'+encodeURIComponent(id)+'/decision','POST',{actor_id:PERSON_IDS[actor],status});await inbox();message(status==='approved'?'DB 승인 완료. 원이정 계정에서 업무를 확인하세요.':'DB에 반려 상태를 저장했습니다.');}
   catch(e){message(e.message)}
  }
@@ -175,7 +175,7 @@
  }
  const originalOpen=openImport;
  openImport=function(){
-  if(actor==='팀장')return inbox();
+  if(actor==='김지수')return inbox();
   seed();originalOpen();
   importState.person=null;importState.selected=new Set();importState.step=1;importState.approved=false;
   renderImportPeople();renderImportTasks();renderImportFlow();
@@ -212,7 +212,7 @@
   const bar=document.createElement('div');bar.id='handover-demo-toolbar';bar.className='flex flex-wrap items-center gap-2';
   bar.innerHTML='<button id="handover-demo-inbox" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">요청·승인함</button><button id="handover-demo-received" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">이어받은 업무</button><button id="handover-demo-logout" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">계정 나가기</button>';
   header.appendChild(bar);
-  el('handover-demo-logout').onclick=()=>{authToken=null;if(verifiedMode&&window.clearVerifiedDemoData)window.clearVerifiedDemoData();const password=el('verified-login-password');if(password)password.value='';closePanel();if(typeof closeImport==='function')closeImport();el('login-screen').classList.remove('hidden');};
+  el('handover-demo-logout').onclick=()=>{authToken=null;if(verifiedMode){window.clearVerifiedDemoData?.();window.location.assign('/api/demo/auth/logout');return;}closePanel();if(typeof closeImport==='function')closeImport();el('login-screen').classList.remove('hidden');};
   el('handover-demo-inbox').onclick=inbox;
   el('handover-demo-received').onclick=()=>{if(actor==='원이정')received();else inbox();};
  }
@@ -309,32 +309,39 @@
   .then(config=>{
     verifiedMode=!!config.verified_mode;
     const fields=el('verified-login-fields');
-    if(fields)fields.classList.toggle('hidden',!verifiedMode);
+    if(fields)fields.classList.add('hidden');
+    if(verifiedMode){
+      const selector=el('handover-login-account');
+      if(selector)selector.parentElement?.classList.add('hidden');
+      const button=el('login-screen')?.querySelector('button[onclick="enterApp()"]');
+      if(button)button.textContent='Slack으로 로그인';
+    }
   }).catch(()=>{message('인증 설정 조회에 실패했습니다.');});
  enterApp=async function(){
-  const selection=loginSelect?.value||'원이정';
-  actor=ACCOUNT.includes(selection)?selection:'원이정';
   if(verifiedMode){
-    const email=el('verified-login-email')?.value.trim();
-    const password=el('verified-login-password')?.value;
-    if(!email||!password)return message('Supabase 이메일과 비밀번호를 입력해 주세요.');
+    let identity;
     try{
-      const res=await fetch('/api/demo/auth/login',{method:'POST',credentials:'same-origin',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({email,password,selected_person:actor})});
-      if(!res.ok)throw new Error('계정 인증 실패 (HTTP '+res.status+')');
-      const session=await res.json();
-      authToken=session.access_token;
-      if(!authToken)throw new Error('인증 토큰이 없습니다.');
-      await window.loadVerifiedDemoData(authToken);
-    }catch(error){authToken=null;message(error.message);return;}
+      const res=await fetch('/api/demo/auth/me',{credentials:'same-origin',cache:'no-store'});
+      if(!res.ok)throw new Error('Slack 로그인 확인 실패 (HTTP '+res.status+')');
+      identity=await res.json();
+    }catch(error){message(error.message);return;}
+    if(!identity.authenticated){
+      window.location.assign('/api/demo/auth/slack/start');
+      return;
+    }
+    actor=Object.keys(PERSON_IDS).find(name=>PERSON_IDS[name]===identity.person_id);
+    if(!actor){message('등록되지 않은 Slack 사용자입니다.');return;}
+    try{await window.loadVerifiedDemoData('');}
+    catch(error){message('업무 조회 권한 확인 실패: '+error.message);return;}
+  }else{
+    const selection=loginSelect?.value||'원이정';
+    actor=ACCOUNT.includes(selection)?selection:'원이정';
   }
   showGate(actor==='원이정'?'checking':'approved');
   previousEnterApp();
   if(actor==='원이정')await refreshGate();
-  const role=el('handover-login-role');
-  if(role)role.textContent=actor==='팀장'?'팀장':'일반사원';
-  if(actor==='팀장'||actor==='김지수'){
+  const role=el('handover-login-role');if(role)role.textContent='일반사원';
+  if(actor==='김지수'){
     if(typeof setMainView==='function')setMainView('briefing');
     await inbox();
   }
