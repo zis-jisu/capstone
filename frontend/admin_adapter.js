@@ -273,20 +273,17 @@
   if(locked){
    const configs={
     checking:{icon:'sync',tag:'상태 확인 중',title:'인수인계 상태 확인 중',description:'김지수님의 업무 승인 기록을 확인하고 있습니다.',action:'요청 내역 확인'},
-    empty:{icon:'inventory_2',tag:'요청 전',title:'아직 이어받은 업무가 없어요',description:'같은 팀의 김지수님을 선택하고 Work 단위로 인수인계를 요청해 주세요.',action:'김지수 업무 요청하기'},
+    empty:{icon:'inventory_2',tag:'요청 전',title:'아직 이어받은 업무가 없어요',description:'상단 돋보기에서 같은 팀 담당자를 검색해 인수인계를 요청할 수 있어요.',action:'김지수 업무 요청하기'},
     pending:{icon:'hourglass_top',tag:'승인 대기',title:'김지수님의 승인을 기다리고 있어요',description:'김지수님이 승인하면 업무 흐름이 나타납니다. 팀장 승인은 UI 시연으로만 표시됩니다.',action:'요청 상태 확인'},
     rejected:{icon:'block',tag:'요청 반려',title:'인수인계 요청이 반려됐어요',description:'업무는 표시되지 않습니다. 필요한 경우 김지수님에게 다시 요청해 주세요.',action:'다시 요청하기'},
     error:{icon:'wifi_off',tag:'확인 실패',title:'승인 상태를 불러오지 못했어요',description:'승인 여부를 확인할 수 없어 업무를 숨겼습니다. 다시 조회해 주세요.',action:'요청 내역 확인'}
    };
    const config=configs[mode]||configs.empty;
-   const requestAction=mode==='empty'||mode==='rejected';
    gate.innerHTML='<div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F2F7FF] text-[#3182F6]"><span class="material-symbols-outlined text-[30px]">'+config.icon+'</span></div>'+
    '<div class="mt-5"><span class="inline-flex rounded-full bg-[#F2F7FF] px-3 py-1.5 text-[11px] font-bold text-[#1B64DA]">'+config.tag+'</span></div>'+
    '<h2 class="mt-4 text-[22px] font-bold text-[#191F28]">'+config.title+'</h2>'+
    '<p class="mx-auto mt-3 max-w-[470px] text-[13px] leading-6 text-[#6B7684]">'+config.description+'</p>'+
-   '<div class="mx-auto mt-6 max-w-[420px] rounded-2xl border border-[#E5E8EB] bg-[#F8F9FA] p-4 text-left"><div class="text-[11px] font-semibold text-[#8B95A1]">인수인계 대상 Work</div><div class="mt-1 text-[13px] font-bold">'+safe(WORK_TITLE)+'</div><div class="mt-1 text-[11px] text-[#8B95A1]">김지수 · 세부 Task 4건 · 승인 완료 후 열람</div></div>'+
-   '<div class="mt-7 flex flex-wrap justify-center gap-2"><button id="handover-gate-request" class="rounded-xl bg-[#3182F6] px-5 py-3 text-[13px] font-bold text-white">'+config.action+'</button><button id="handover-gate-refresh" class="rounded-xl border border-[#DDE3EA] bg-white px-5 py-3 text-[13px] font-bold text-[#4E5968]">승인 상태 새로고침</button></div>';
-   el('handover-gate-request').onclick=()=>requestAction?openImport():received();
+   '<div class="mt-7"><button id="handover-gate-refresh" class="rounded-xl border border-[#DDE3EA] bg-white px-5 py-3 text-[13px] font-bold text-[#4E5968]">승인 상태 새로고침</button></div>';
    el('handover-gate-refresh').onclick=()=>refreshGate();
   }
   const header=el('header-kicker');
@@ -306,6 +303,12 @@
    showGate(approved?'approved':pending?'pending':rejected?'rejected':'empty');
    if(approved&&typeof render==='function')render();
   }catch(e){showGate('error');message('승인 상태를 확인하지 못했습니다. '+e.message);}
+ }
+ function updateSidebarIdentity(){
+  const label=el('sidebar-user-name'),idLabel=el('sidebar-user-id'),avatar=el('sidebar-user-avatar');
+  if(label)label.textContent=actor;
+  if(idLabel)idLabel.textContent=PERSON_IDS[actor]||'시연용 계정 · Slack ID 없음';
+  if(avatar)avatar.textContent=actor.slice(0,1);
  }
  const previousEnterApp=enterApp;
  let authConfigReady=false;
@@ -344,6 +347,7 @@
     const selection=loginSelect?.value||'원이정';
     actor=ACCOUNT.includes(selection)?selection:'원이정';
   }
+  updateSidebarIdentity();
   showGate(actor==='원이정'?'checking':'approved');
   previousEnterApp();
   if(actor==='원이정')await refreshGate();
