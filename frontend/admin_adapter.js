@@ -160,7 +160,7 @@
   let r;try{r=(await load()).find(x=>x.id===id&&x.status==='pending');}
   catch(e){return message(e.message)}
   if(!r||(actor==='팀장'?verifiedMode:PERSON_IDS[actor]!==r.sourceId))return message('승인할 수 없는 요청입니다.');
-  panel('가상 YubiKey 승인','<div class="rounded-2xl bg-[#F2F7FF] p-6 text-center"><div class="text-[38px]">🔑</div><h3 class="mt-3 text-[17px] font-bold">보안키 터치 시연</h3><p class="mt-2 text-[12px] text-[#6B7684]">실제 YubiKey 또는 WebAuthn 인증이 아닙니다.</p><button id="handover-confirm" class="mt-5 rounded-xl bg-[#3182F6] px-5 py-3 text-white font-bold">가상 보안키 터치 · 승인</button></div>');
+  panel(actor==='팀장'?'팀장 승인 시연 (DB 미반영)':'가상 YubiKey 승인','<div class="rounded-2xl bg-[#F2F7FF] p-6 text-center"><div class="text-[38px]">🔑</div><h3 class="mt-3 text-[17px] font-bold">보안키 터치 시연</h3><p class="mt-2 text-[12px] text-[#6B7684]">실제 YubiKey 또는 WebAuthn 인증이 아닙니다.</p><button id="handover-confirm" class="mt-5 rounded-xl bg-[#3182F6] px-5 py-3 text-white font-bold">가상 보안키 터치 · 승인</button></div>');
   el('handover-confirm').onclick=()=>decide(id,'approved');
  }
  async function decide(id,status){
