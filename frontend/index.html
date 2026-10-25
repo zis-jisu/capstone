@@ -46,18 +46,8 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
     <div class="mt-7 space-y-3">
       <label class="block">
         <span class="text-[12px] font-semibold text-[#6B7684]">접속 계정 선택</span>
-        <div class="mt-2 flex items-center gap-3"><select id="handover-login-account" aria-label="시연 로그인 계정" class="min-w-0 flex-1 h-12 rounded-xl border border-[#DDE3EA] px-4 text-[14px] bg-white outline-none focus:border-[#3182F6]"><option value="원이정">원이정 · Marketing</option><option value="김지수">김지수 · Marketing</option><option value="팀장">팀장 · Marketing</option></select><span id="handover-login-role" class="shrink-0 rounded-full bg-[#F2F7FF] text-[#1B64DA] px-3 py-1.5 text-[12px] font-bold">일반사원</span></div>
+        <div class="mt-2 flex items-center gap-3"><select id="handover-login-account" aria-label="시연 로그인 계정" class="min-w-0 flex-1 h-12 rounded-xl border border-[#DDE3EA] px-4 text-[14px] bg-white outline-none focus:border-[#3182F6]"><option value="원이정">원이정 · Marketing</option><option value="김지수">김지수 · Marketing</option></select><span id="handover-login-role" class="shrink-0 rounded-full bg-[#F2F7FF] text-[#1B64DA] px-3 py-1.5 text-[12px] font-bold">일반사원</span></div>
       </label>
-      <div id="verified-login-fields" class="hidden rounded-2xl border border-[#DDE3EA] p-4 space-y-3">
-        <div class="text-[12px] font-bold text-[#4E5968]">Supabase 사용자 인증</div>
-        <label class="block text-[12px] text-[#6B7684]">이메일
-          <input id="verified-login-email" type="email" autocomplete="username" placeholder="회사 이메일" class="mt-1 w-full h-11 rounded-xl border border-[#DDE3EA] px-3 text-[13px]"/>
-        </label>
-        <label class="block text-[12px] text-[#6B7684]">비밀번호
-          <input id="verified-login-password" type="password" autocomplete="current-password" placeholder="계정 비밀번호" class="mt-1 w-full h-11 rounded-xl border border-[#DDE3EA] px-3 text-[13px]"/>
-        </label>
-        <div class="text-[11px] leading-relaxed text-[#8B95A1]">실제 Supabase 인증 계정과 선택한 인물의 권한이 일치해야 접속할 수 있습니다.</div>
-      </div>
       <div class="rounded-2xl bg-[#F2F7FF] border border-[#D9E9FF] p-4 flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl bg-white text-[#3182F6] flex items-center justify-center border border-[#D9E9FF]"><span class="material-symbols-outlined">key</span></div>
         <div class="flex-1"><div class="text-[13px] font-bold">시연 접속 확인</div><div class="text-[12px] text-[#6B7684] mt-0.5">시연 화면을 확인할 수 있습니다.</div></div>
