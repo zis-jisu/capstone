@@ -294,9 +294,9 @@
    if(completedIds.length){
     const section=document.createElement('details');
     section.id='completed-tasks-accordion';
-    section.className='rounded-2xl border border-[#E5E8EB] bg-[#F8F9FA] p-3';
+    section.className='rounded-[22px] border border-[#E5E8EB] bg-[#F8F9FA] px-4 py-3';
     const label=document.createElement('summary');
-    label.className='cursor-pointer list-none text-[13px] font-bold text-[#6B7684]';
+    label.className='cursor-pointer text-[13px] font-bold text-[#6B7684]';
     label.textContent='완료된 업무 '+completedIds.length+'건 · 펼쳐보기';
     section.appendChild(label);
     const inner=document.createElement('div');
