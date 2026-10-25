@@ -106,7 +106,7 @@
 /* Marketing handover database-backed UI demonstration; account switching is simulated, not authorization. */
 (() => {
  'use strict';
- const TEAM=['김지수','박서연','최민준'], ACCOUNT=['원이정','김지수','팀장'];
+ const TEAM=['김지수','박서연','최민준'], ACCOUNT=['원이정','김지수','박서연','최민준','팀장'];
  const PERSON_IDS={'원이정':'U0C20G9MRML','김지수':'U0C22C8M742','박서연':'U0C6WSR5275','최민준':'U0C38J2MUF4'};
  const API='/api/demo/handover-requests';
  const WORK_ID='WORK-00020', WORK_TITLE='신차 출시 캠페인 콘텐츠 현지화 및 배포 준비';
@@ -195,7 +195,7 @@
   }
  }
   async function inbox(){
-  if(actor==='원이정')return received();
+  if(actor==='원이정'||actor==='박서연'||actor==='최민준')return received();
   let all;try{all=(await load()).filter(r=>actor==='팀장'?!verifiedMode:r.sourceId===PERSON_IDS[actor]);}
   catch(e){return message(e.message)}
   const pending=all.filter(r=>r.status==='pending');
@@ -436,6 +436,7 @@
       actor=ACCOUNT.includes(selection)?selection:'원이정';
     }
     updateSidebarIdentity();
+    if(typeof window.setPersonalWorkActor==='function')window.setPersonalWorkActor(actor);
     showGate(actor==='팀장'?'approved':'checking');
     previousEnterApp();
     if(typeof window.activateManagerWorkspace==='function')
@@ -446,7 +447,7 @@
     }else if(actor==='김지수'){
       setMainView('briefing');
       await refreshGate();
-    }else if(actor==='원이정'){
+    }else if(actor==='원이정'||actor==='박서연'||actor==='최민준'){
       await refreshGate();
     }
     const role=el('handover-login-role');
