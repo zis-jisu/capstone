@@ -200,6 +200,7 @@
   try{
    await api('','POST',{requester_id:PERSON_IDS['원이정'],source_person_id:PERSON_IDS['김지수'],work_id:WORK_ID});
    importState.step=2;importState.approved=false;renderImportFlow();
+   showGate('pending');
    message('Supabase에 인수인계 요청을 저장했습니다. 김지수 또는 팀장 UI에서 승인하세요.');
   }catch(e){message(e.message)}
   finally{if(btn)btn.disabled=false}
@@ -259,32 +260,46 @@
   if(!gate){
    gate=document.createElement('section');
    gate.id='handover-approval-gate';
-   gate.className='rounded-[22px] border border-[#E5E8EB] bg-white p-8 text-center';
+   gate.className='rounded-[24px] border border-[#E5E8EB] bg-white px-6 py-12 text-center shadow-sm';
    briefing.prepend(gate);
   }
   gate.classList.toggle('hidden',!locked);
   if(locked){
-   const description=mode==='checking'?'인수인계 승인 상태를 확인하고 있어요.':mode==='error'?'승인 상태를 조회할 수 없어 업무를 표시하지 않습니다.':'아직 승인된 인수인계 업무가 없습니다. 김지수에게 업무를 요청하면 김지수 또는 팀장의 승인 후 여기에 표시됩니다.';
-   gate.innerHTML='<span class="material-symbols-outlined text-[34px] text-[#8B95A1]">lock</span><h2 class="mt-3 text-[20px] font-bold">인수인계 승인 대기</h2><p class="mt-2 text-[13px] text-[#6B7684]">'+description+'</p><div class="mt-6 flex flex-wrap justify-center gap-2"><button id="handover-gate-request" class="rounded-xl bg-[#3182F6] px-4 py-3 text-[13px] font-bold text-white">인수인계 요청하기</button><button id="handover-gate-refresh" class="rounded-xl border border-[#DDE3EA] bg-white px-4 py-3 text-[13px] font-bold">승인 상태 새로고침</button></div>';
-   el('handover-gate-request').onclick=()=>openImport();
+   const configs={
+    checking:{icon:'sync',tag:'상태 확인 중',title:'인수인계 상태 확인 중',description:'김지수님의 업무 승인 기록을 확인하고 있습니다.',action:'요청 내역 확인'},
+    empty:{icon:'inventory_2',tag:'요청 전',title:'아직 이어받은 업무가 없어요',description:'같은 팀의 김지수님을 선택하고 Work 단위로 인수인계를 요청해 주세요.',action:'김지수 업무 요청하기'},
+    pending:{icon:'hourglass_top',tag:'승인 대기',title:'김지수님의 승인을 기다리고 있어요',description:'김지수님 또는 팀장이 승인하면 이곳에 업무 흐름과 Slack 근거가 나타납니다.',action:'요청 상태 확인'},
+    rejected:{icon:'block',tag:'요청 반려',title:'인수인계 요청이 반려됐어요',description:'업무는 표시되지 않습니다. 필요한 경우 김지수님에게 다시 요청해 주세요.',action:'다시 요청하기'},
+    error:{icon:'wifi_off',tag:'확인 실패',title:'승인 상태를 불러오지 못했어요',description:'승인 여부를 확인할 수 없어 업무를 숨겼습니다. 다시 조회해 주세요.',action:'요청 내역 확인'}
+   };
+   const config=configs[mode]||configs.empty;
+   const requestAction=mode==='empty'||mode==='rejected';
+   gate.innerHTML='<div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F2F7FF] text-[#3182F6]"><span class="material-symbols-outlined text-[30px]">'+config.icon+'</span></div>'+
+   '<div class="mt-5"><span class="inline-flex rounded-full bg-[#F2F7FF] px-3 py-1.5 text-[11px] font-bold text-[#1B64DA]">'+config.tag+'</span></div>'+
+   '<h2 class="mt-4 text-[22px] font-bold text-[#191F28]">'+config.title+'</h2>'+
+   '<p class="mx-auto mt-3 max-w-[470px] text-[13px] leading-6 text-[#6B7684]">'+config.description+'</p>'+
+   '<div class="mx-auto mt-6 max-w-[420px] rounded-2xl border border-[#E5E8EB] bg-[#F8F9FA] p-4 text-left"><div class="text-[11px] font-semibold text-[#8B95A1]">인수인계 대상 Work</div><div class="mt-1 text-[13px] font-bold">'+safe(WORK_TITLE)+'</div><div class="mt-1 text-[11px] text-[#8B95A1]">김지수 · 세부 Task 4건 · 승인 완료 후 열람</div></div>'+
+   '<div class="mt-7 flex flex-wrap justify-center gap-2"><button id="handover-gate-request" class="rounded-xl bg-[#3182F6] px-5 py-3 text-[13px] font-bold text-white">'+config.action+'</button><button id="handover-gate-refresh" class="rounded-xl border border-[#DDE3EA] bg-white px-5 py-3 text-[13px] font-bold text-[#4E5968]">승인 상태 새로고침</button></div>';
+   el('handover-gate-request').onclick=()=>requestAction?openImport():received();
    el('handover-gate-refresh').onclick=()=>refreshGate();
   }
   const header=el('header-kicker');
-  if(header&&actor==='원이정')header.textContent=locked?'인수인계 요청 대기':'김지수님에게 이어받은 업무';
+  if(header&&actor==='원이정')header.textContent=locked?'인수인계 현황':'김지수님에게 이어받은 업무';
   const heading=el('header-title');
-  if(heading&&actor==='원이정')heading.textContent=locked?'아직 이어받은 업무가 없어요':'내 업무 브리핑';
+  if(heading&&actor==='원이정')heading.textContent=locked?'업무 이어받기':'내 업무 브리핑';
  }
  async function refreshGate(){
   if(actor!=='원이정'){showGate('approved');return;}
   showGate('checking');
   try{
-   const records=await load();
-   const approved=records.some(r=>r.requesterId===PERSON_IDS['원이정']&&r.sourceId===PERSON_IDS['김지수']&&r.workId===WORK_ID&&r.status==='approved');
-   showGate(approved?'approved':'pending');
+   const records=(await load()).filter(r=>r.requesterId===PERSON_IDS['원이정']&&r.sourceId===PERSON_IDS['김지수']&&r.workId===WORK_ID);
+   const approved=records.some(r=>r.status==='approved');
+   const pending=records.some(r=>r.status==='pending');
+   const rejected=records.some(r=>r.status==='rejected');
+   showGate(approved?'approved':pending?'pending':rejected?'rejected':'empty');
    if(approved&&typeof render==='function')render();
   }catch(e){showGate('error');message('승인 상태를 확인하지 못했습니다. '+e.message);}
  }
-
  const previousEnterApp=enterApp;
  enterApp=function(){
   const selection=loginSelect?.value||'원이정';
