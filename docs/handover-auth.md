@@ -1,38 +1,32 @@
-# LINK-ing handover: verified user authentication
+# LINK-ing Slack login and handover — deployed code
 
-## Current environments
+## Identity and storage
 
-- `HANDOVER_AUTH_MODE=demo` (default): browser account switch and simulated YubiKey; **not secure**. Keep for presentation only.
-- `HANDOVER_AUTH_MODE=verified`: Supabase Auth email/password login is mandatory. Backend verifies each user access token using Supabase Auth `/auth/v1/user`. The browser sends it as `X-Handover-Access-Token` because Railway Basic Auth already owns the Authorization header.
-- Do not enable `verified` until Supabase Auth users have been provisioned with trusted `app_metadata` and email confirmation/login has been tested. At the time of implementation, `auth.users` had zero accounts.
+- `person_id` is the **same exact value** as Slack user ID (no second person ID).
+- The existing `persons` table identifies users; there is **no Supabase Auth account requirement**.
+- `handover_requests` stores requests and approved/rejected status only.
+- `handover_assignments` is a legacy **admin Task assignment** table, not needed for this handover scenario. It is not deleted because the pre-existing admin assignments API still references it.
+- No separate team-manager handover approval: only the actual owner, 김지수, can approve the WORK-00020 demo request by 원이정.
 
-## Account provisioning (performed by an administrator)
+## Sign in with Slack (real identity)
 
-Create or invite **separate** Supabase Auth users. Set their trusted **app_metadata**, not editable user_metadata:
+Production requires a Slack application's **Sign in with Slack** OAuth / OpenID Connect settings. On Railway **linking-web** set:
 
-| Selected account | app_metadata values |
-| --- | --- |
-| 원이정 | `{"team":"marketing","person_id":"U0C20G9MRML","role":"employee"}` |
-| 김지수 | `{"team":"marketing","person_id":"U0C22C8M742","role":"employee"}` |
-| 팀장 | `{"team":"marketing","person_id":"<actual manager Slack ID>","role":"manager"}` |
+- `SLACK_CLIENT_ID` (from the Slack app)
+- `SLACK_CLIENT_SECRET` (keep secret, backend only)
+- `SLACK_REDIRECT_URI` = `https://<YOUR-LINKING-WEB-DOMAIN>/api/demo/auth/slack/callback`
+- `SLACK_WORKSPACE_TEAM_ID` (recommended: restrict to your BMW demo workspace)
 
-Use real user-specific emails and passwords, **never a shared demo password** as the identity factor. Keep `SUPABASE_KEY` secret on Railway. No auth token or password should be written to the repository.
+Configure this same redirect URI in Slack App > OAuth & Permissions > Redirect URLs, with Sign in with Slack scopes `openid email profile`.
 
-After account creation and successful authentication, set `HANDOVER_AUTH_MODE=verified` on the Railway `linking-web` service.
+When all three required variables are present, the UI switches to Slack sign-in automatically; the backend checks Slack's OpenID userInfo response and ensures that the ID is registered in `persons` with Marketing team membership. A signed HttpOnly Secure cookie authenticates subsequent API requests. The backend verifies actual actor on request/approval, and hides Work/Task/Event messages until approved. The demo YubiKey touch is a visual effect, **not real cryptographic YubiKey validation**.
 
-## Behavior under verified mode
+Until OAuth variables are configured, the existing `DEMO_USERNAME` / `DEMO_PASSWORD` site gate and local actor choice remain for presentation only. This is not secure user-specific authorization; don't present it as one.
 
-1. GET `/api/demo/data` verifies the user token. A regular recipient sees only Works with an approved request addressed to their `person_id`; without approval they receive empty `works/tasks/events/edges` and no raw messages.
-2. GET `/api/demo/handover-requests` returns only requests involving the authenticated user; team managers see the supported team request scope.
-3. POST requests require that the authenticated user is the requester.
-4. Decisions require the source person or a team manager. The asserted actor ID is checked against verified identity, except for the designated manager display identifier.
-5. The simulated YubiKey is still **not** a cryptographic authentication device. Supabase Auth establishes identity, and the demonstration button records an approval.
-6. Signing out clears the in-memory access token and fetched Work dataset.
+## Known limitations
 
-## Security limitations and deployment review
-
-- The Railway HTTP Basic demo gate is still in place as an additional website password, not personal authorization.
-- `/api/demo/data` continues to serve legacy demonstration data in `demo` mode; do not treat this as production data security.
-- The older Supabase public tables were found with RLS disabled; review RLS policies before exposing any sensitive data. Do not enable RLS without policies in production without evaluating impact.
-- This rollout does not automatically create real user accounts or change team affiliation records.
-- Before production, add automated authorization tests, a complete session refresh/revocation strategy, and resource-specific permissions for additional people and Works.
+- The demo currently supports 원이정 → 김지수 and `WORK-00020`, not a generalized many-person workflow.
+- Supabase existing `persons` rows must match the authenticated Slack IDs. Marketing users were verified in the database at implementation.
+- There is no new required DB table beyond `handover_requests`; do not drop `handover_assignments` without removing or migrating the existing admin assignments API first.
+- Existing pipeline DB tables have RLS disabled; audit them before a public production launch.
+- User access is driven by a secure server-side cookie, not a user-supplied ID, only when real Slack OAuth is enabled.
