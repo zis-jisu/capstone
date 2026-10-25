@@ -90,7 +90,7 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
 <!-- MAIN -->
 <div class="lg:pl-[248px] min-h-screen">
   <header class="sticky top-0 z-30 h-16 bg-white/95 backdrop-blur border-b border-[#EEF0F3] px-6 lg:px-8 flex items-center justify-between">
-    <div><div id="header-kicker" class="text-[12px] text-[#8B95A1]">김지수님에게서 인수받은 업무</div><h1 id="header-title" class="text-[20px] font-bold">내 업무 브리핑</h1></div>
+    <div><div id="header-kicker" class="text-[12px] text-[#8B95A1]">인수받은 업무</div><h1 id="header-title" class="text-[20px] font-bold">내 업무 브리핑</h1></div>
     <div class="flex items-center gap-2">
       <button onclick="openImport()" title="담당자 업무 가져오기" aria-label="담당자 업무 가져오기" class="w-9 h-9 rounded-xl border border-[#DDE3EA] bg-white text-[#4E5968] hover:bg-[#F8F9FA] flex items-center justify-center transition">
         <span class="material-symbols-outlined text-[19px]">search</span>
@@ -904,7 +904,7 @@ function setMainView(view){
   [nb,nh,document.getElementById('nav-manage'),document.getElementById('nav-settings')].forEach(x=>x&&x.classList.add('text-[#6B7684]','font-medium'));
   const active=document.getElementById('nav-'+view);
   if(active){active.classList.remove('text-[#6B7684]','font-medium');active.classList.add('bg-[#F2F7FF]','text-[#1B64DA]','font-bold');}
-  document.getElementById('header-kicker').textContent=view==='handover'?'실시간으로 동기화된 나의 업무':'김지수님에게서 인수받은 업무';
+  document.getElementById('header-kicker').textContent=view==='handover'?'실시간으로 동기화된 나의 업무':'인수받은 업무';
   document.getElementById('header-title').textContent=view==='handover'?'나의 업무':'내 업무 브리핑';
   if(view==='manage'){document.getElementById('header-kicker').textContent='팀장 · HR 관리자 데모';document.getElementById('header-title').textContent='인수인계 관리';renderAssignments();}
   if(view==='settings'){document.getElementById('header-kicker').textContent='초기 설정';document.getElementById('header-title').textContent='Slack 연결 설정';renderSlackSettings();}
@@ -1551,7 +1551,7 @@ function setMainView(view){
   [nb,nh,document.getElementById('nav-manage'),document.getElementById('nav-settings')].forEach(x=>x&&x.classList.add('text-[#6B7684]','font-medium'));
   const active=document.getElementById('nav-'+view);
   if(active){active.classList.remove('text-[#6B7684]','font-medium');active.classList.add('bg-[#F2F7FF]','text-[#1B64DA]','font-bold');}
-  document.getElementById('header-kicker').textContent=view==='handover'?'실시간으로 동기화된 나의 업무':'김지수님에게서 인수받은 업무';
+  document.getElementById('header-kicker').textContent=view==='handover'?'실시간으로 동기화된 나의 업무':'인수받은 업무';
   document.getElementById('header-title').textContent=view==='handover'?'나의 업무':'내 업무 브리핑';
   if(view==='manage'){document.getElementById('header-kicker').textContent='팀장 · HR 관리자 데모';document.getElementById('header-title').textContent='인수인계 관리';renderAssignments();}
   if(view==='settings'){document.getElementById('header-kicker').textContent='초기 설정';document.getElementById('header-title').textContent='Slack 연결 설정';renderSlackSettings();}
