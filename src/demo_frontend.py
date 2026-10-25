@@ -5,12 +5,12 @@ import os
 import secrets
 from pathlib import Path
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from src.db import SupabaseStore
-from src.handover_auth import verified_actor, can_approve, secure_handover_enabled
+from src.slack_login import actor as slack_actor, enabled as slack_login_enabled, begin as slack_begin, callback as slack_callback, logout as slack_logout
 from scripts.export_ml_rpc import fetch_graph
 from src.frontend_api import app
 
@@ -43,7 +43,7 @@ def demo_adapter(_=Depends(demo_auth)):
 
 
 @app.get('/api/demo/data', include_in_schema=False)
-def demo_data(_=Depends(demo_auth), actor=Depends(verified_actor)):
+def demo_data(_=Depends(demo_auth), actor=Depends(slack_actor)):
     store = SupabaseStore()
     snapshot = store.snapshot()  # persons / events / tasks / works / edges
     messages = store.request('slack_messages', params={'select': '*', 'order': 'slack_ts.asc', 'limit': 200})
@@ -51,7 +51,7 @@ def demo_data(_=Depends(demo_auth), actor=Depends(verified_actor)):
     if actor:
         # In verified mode, an employee may only retrieve an approved Work.
         # Supervisors and the original handover source can review the source dataset.
-        if actor['role'] != 'manager' and actor['person_id'] != 'U0C22C8M742':
+        if actor['person_id'] != JISOO_ID:
             grants = _handover_db(params={
                 'select': 'work_id',
                 'requester_id': 'eq.' + actor['person_id'],
@@ -278,57 +278,35 @@ def _handover_db(method='GET', params=None, payload=None):
 
 @app.get('/api/demo/auth/config')
 def demo_auth_config(_=Depends(demo_auth)):
-    return {'verified_mode': secure_handover_enabled()}
+    return {'verified_mode': slack_login_enabled(), 'provider': 'slack'}
 
-class VerifiedLogin(BaseModel):
-    email: str = Field(min_length=3, max_length=254)
-    password: str = Field(min_length=1, max_length=256)
-    selected_person: str = Field(min_length=1, max_length=40)
+@app.get('/api/demo/auth/slack/start')
+def slack_signin(_=Depends(demo_auth)):
+    return slack_begin()
 
-@app.post('/api/demo/auth/login')
-def demo_verified_login(body: VerifiedLogin, _=Depends(demo_auth)):
-    if not secure_handover_enabled():
-        raise HTTPException(403, 'Verified login is not enabled')
-    store = SupabaseStore()
-    credentials = json.dumps({'email': body.email, 'password': body.password}).encode('utf-8')
-    request = urllib.request.Request(store.url + '/auth/v1/token?grant_type=password',
-        data=credentials, headers={'apikey': store.key, 'Content-Type': 'application/json'},
-        method='POST')
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            tokens = json.load(response)
-    except urllib.error.HTTPError:
-        raise HTTPException(401, 'Invalid account credentials') from None
-    except urllib.error.URLError:
-        raise HTTPException(503, 'Authentication service unreachable') from None
-    token = tokens.get('access_token')
-    if not token:
-        raise HTTPException(401, 'Login session missing')
-    actor = verified_actor(x_handover_access_token=token)
-    selected = {
-        '원이정': WON_ID,
-        '김지수': JISOO_ID,
-        '팀장': MARKETING_MANAGER_DEMO_ID,
-    }.get(body.selected_person)
-    if selected is None or not (
-        (body.selected_person == '팀장' and actor['role'] == 'manager')
-        or (body.selected_person != '팀장' and actor['person_id'] == selected)
-    ):
-        raise HTTPException(403, 'Account does not match selected role')
-    return {'access_token': token, 'person_id': actor['person_id'], 'role': actor['role']}
+@app.get('/api/demo/auth/slack/callback')
+def slack_signin_callback(code: str, state: str, request: Request):
+    return slack_callback(code, state, request)
+
+@app.get('/api/demo/auth/me')
+def slack_me(_=Depends(demo_auth), identity=Depends(slack_actor)):
+    if not identity:
+        return {'authenticated': False, 'mode': 'demo'}
+    return {'authenticated': True, 'person_id': identity['person_id']}
+
+@app.get('/api/demo/auth/logout')
+def slack_signout(_=Depends(demo_auth)):
+    return slack_logout()
 
 @app.get('/api/demo/handover-requests')
-def demo_handover_list(_=Depends(demo_auth), actor=Depends(verified_actor)):
+def demo_handover_list(_=Depends(demo_auth), actor=Depends(slack_actor)):
     rows = _handover_db(params={'select': '*', 'order': 'created_at.desc', 'limit': '100'})
     if actor:
-        if actor['role'] == 'manager':
-            rows = [r for r in rows if r['source_person_id'] == JISOO_ID]
-        else:
-            rows = [r for r in rows if actor['person_id'] in (r['requester_id'], r['source_person_id'])]
+        rows = [r for r in rows if actor['person_id'] in (r['requester_id'], r['source_person_id'])]
     return {'requests': rows}
 
 @app.post('/api/demo/handover-requests', status_code=201)
-def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth), actor=Depends(verified_actor)):
+def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth), actor=Depends(slack_actor)):
     if actor and actor['person_id'] != body.requester_id:
         raise HTTPException(403, 'Cannot request on behalf of another person')
     # Explicit one-scenario scope for the UI prototype.
@@ -343,23 +321,22 @@ def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth), actor=
     return {'request': rows[0]}
 
 @app.post('/api/demo/handover-requests/{request_id}/decision')
-def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(demo_auth), actor=Depends(verified_actor)):
+def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(demo_auth), actor=Depends(slack_actor)):
     from uuid import UUID
     try:
         UUID(request_id)
     except ValueError:
         raise HTTPException(422, 'Invalid request ID') from None
-    if actor and not (actor['person_id'] == body.actor_id or
-                      (actor['role'] == 'manager' and body.actor_id == MARKETING_MANAGER_DEMO_ID)):
+    if actor and actor['person_id'] != body.actor_id:
         raise HTTPException(403, 'Actor mismatch')
-    if body.actor_id not in (JISOO_ID, MARKETING_MANAGER_DEMO_ID):
+    if body.actor_id != JISOO_ID:
         raise HTTPException(403, 'Demo actor cannot approve')
     rows = _handover_db(params={
         'select': '*', 'request_id': 'eq.' + request_id, 'status': 'eq.pending',
     })
     if not rows:
         raise HTTPException(409, 'Request is not pending')
-    if actor and not can_approve(actor, rows[0]['source_person_id']):
+    if actor and actor['person_id'] != rows[0]['source_person_id']:
         raise HTTPException(403, 'Approval permission denied')
     if rows[0]['source_person_id'] != JISOO_ID:
         raise HTTPException(403, 'Outside of demo team')
