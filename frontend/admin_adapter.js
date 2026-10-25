@@ -165,7 +165,7 @@
   function switchActor(next){
   if(!ACCOUNT.includes(next))return;
   actor=next;closePanel();if(typeof closeImport==='function')closeImport();
-  el('handover-demo-account').value=actor;
+  const loginChoice=el('handover-login-account');if(loginChoice)loginChoice.value=actor;
 
   if(typeof setMainView==='function')setMainView('briefing');
   message(actor+' UI로 전환했습니다. 실제 로그인 변경은 아닙니다.');
@@ -206,9 +206,9 @@
   const header=el('header-kicker')?.parentElement?.parentElement;
  if(header&&!el('handover-demo-toolbar')){
   const bar=document.createElement('div');bar.id='handover-demo-toolbar';bar.className='flex flex-wrap items-center gap-2';
-  bar.innerHTML='<select id="handover-demo-account" aria-label="시연 계정" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-2 text-[12px]"><option>원이정</option><option>김지수</option><option>팀장</option></select><button id="handover-demo-inbox" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">요청·승인함</button><button id="handover-demo-received" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">이어받은 업무</button>';
+  bar.innerHTML='<button id="handover-demo-inbox" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">요청·승인함</button><button id="handover-demo-received" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">이어받은 업무</button><button id="handover-demo-logout" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold">계정 나가기</button>';
   header.appendChild(bar);
-  el('handover-demo-account').onchange=e=>switchActor(e.target.value);
+  el('handover-demo-logout').onclick=()=>{closePanel();if(typeof closeImport==='function')closeImport();el('login-screen').classList.remove('hidden');};
   el('handover-demo-inbox').onclick=inbox;
   el('handover-demo-received').onclick=()=>{if(actor==='원이정')received();else inbox();};
  }
@@ -233,7 +233,29 @@
   section.appendChild(label);
   const inner=document.createElement('div');inner.className='mt-3 space-y-3';
   done.forEach(item=>inner.appendChild(item.button));
-  section.appendChild(inner);holder.appendChild(section);
+  section.appendChild(inner);
+  holder.prepend(section);
+ };
+ const loginSelect=el('handover-login-account');
+ if(loginSelect){
+  loginSelect.addEventListener('change',()=>{
+   const label=el('handover-login-role');
+   if(label)label.textContent=loginSelect.value==='팀장'?'팀장':'일반사원';
+  });
+ }
+ const previousEnterApp=enterApp;
+ enterApp=function(){
+  const selection=loginSelect?.value||'원이정';
+  actor=ACCOUNT.includes(selection)?selection:'원이정';
+  previousEnterApp();
+  const role=el('handover-login-role');if(role)role.textContent=actor==='팀장'?'팀장':'일반사원';
+  if(actor==='팀장'){
+   if(typeof setMainView==='function')setMainView('briefing');
+   inbox();
+  }else if(actor==='김지수'){
+   if(typeof setMainView==='function')setMainView('briefing');
+   inbox();
+  }
  };
  const firstOpenTask=Object.keys(TASKS).find(id=>TASKS[id]?.status!=='완료');
  if(firstOpenTask&&TASKS[state.task]?.status==='완료')state.task=firstOpenTask;
