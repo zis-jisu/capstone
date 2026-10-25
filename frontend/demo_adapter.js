@@ -17,7 +17,6 @@
       Object.keys(SLACK_EVIDENCE).forEach(k => delete SLACK_EVIDENCE[k]);
       Object.keys(FILES).forEach(k => delete FILES[k]);
       PEOPLE.splice(0, PEOPLE.length);
-      HANDOVER_WORKS.splice(0, HANDOVER_WORKS.length);
       Object.keys(IMPORT_DATA).forEach(k => delete IMPORT_DATA[k]);
       const selector=root.getElementById('project-select');
       if(selector)selector.innerHTML='<option value="all">승인된 업무 없음</option>';
@@ -81,11 +80,9 @@
       IMPORT_DATA[p.name] = wids.map(wid => ({project:workMap.get(wid)?.title || wid, tasks:owned.filter(tid => taskToWork.get(tid) === wid).map(tid => taskMap.get(tid)?.title).filter(Boolean)}));
     }
 
-    HANDOVER_WORKS.splice(0, HANDOVER_WORKS.length, ...works.filter(w => workTasks.get(w.work_id).some(id => participantLinks.some(e => e.source_id === 'U0C20G9MRML' && e.target_id === id && e.relation === 'OWNER'))).map(w => ({id:w.work_id,name:html(w.title),tasks:workTasks.get(w.work_id).filter(id => participantLinks.some(e => e.source_id === 'U0C20G9MRML' && e.target_id === id && e.relation === 'OWNER'))})));
-    Object.keys(HANDOVER_TASKS).forEach(key => delete HANDOVER_TASKS[key]);
-    for (const t of tasks) {
-      HANDOVER_TASKS[t.task_id] = {name:html(t.title),status:statusText(t.status),deadline:html(t.deadline_text || '미정'), next:html(t.next_action || '다음 할 일 없음'),blocker:html(TASKS[t.task_id].blocker),evidence:`채널 근거 ${SLACK_EVIDENCE[t.task_id].length}건`};
-    }
+    // '나의 업무' uses the two separately sourced BMW spreadsheet fixtures.
+    // Keep them isolated from granted/imported Supabase handovers.
+    // Actual transferred Works remain in PROJECTS and require approval.
     // Draw only grounded Supabase edges; do not fabricate an owner -> receiver handover link.
     renderPeopleGraph = function(t) {
       const taskId = Object.keys(TASKS).find(id => TASKS[id] === t);
