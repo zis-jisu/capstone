@@ -172,6 +172,16 @@
   const loginHelp = root.querySelector('#login-screen p');
   if(loginHelp) loginHelp.textContent = '시연 접속은 Railway 서버 인증으로 보호됩니다. YubiKey 실제 인증은 연결 전입니다.';
 
+  window.clearVerifiedDemoData = function() {
+    PROJECTS.splice(0,PROJECTS.length);
+    Object.keys(TASKS).forEach(k=>delete TASKS[k]);
+    Object.keys(SLACK_EVIDENCE).forEach(k=>delete SLACK_EVIDENCE[k]);
+    Object.keys(FILES).forEach(k=>delete FILES[k]);
+    PEOPLE.splice(0,PEOPLE.length);
+    HANDOVER_WORKS.splice(0,HANDOVER_WORKS.length);
+    Object.keys(IMPORT_DATA).forEach(k=>delete IMPORT_DATA[k]);
+    state.project='all';state.task=null;
+  };
   window.loadVerifiedDemoData = async function(token) {
     const response = await fetch('/api/demo/data',{credentials:'same-origin',cache:'no-store',headers:{'X-Handover-Access-Token':token}});
     if(!response.ok)throw new Error('권한 확인 실패 (HTTP '+response.status+')');
