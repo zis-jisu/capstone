@@ -17,13 +17,13 @@ MANAGER_ROLE = "manager"
 def secure_handover_enabled():
     return os.getenv("HANDOVER_AUTH_MODE", "demo") == "verified"
 
-def verified_actor(authorization: str | None = Header(default=None)):
+def verified_actor(x_handover_access_token: str | None = Header(default=None)):
     """Validate each request using Supabase Auth, not an actor_id sent by browser."""
     if not secure_handover_enabled():
         return None
-    if not authorization or not authorization.startswith("Bearer "):
+    if not x_handover_access_token:
         raise HTTPException(401, "User authentication required")
-    token = authorization[7:]
+    token = x_handover_access_token
     if not token or len(token) > 8192:
         raise HTTPException(401, "Invalid access token")
     store = SupabaseStore()
