@@ -24,9 +24,38 @@
   function setAdmin(active){
     currentUserRole = active ? 'manager' : 'employee';
     applyRoleAccess();
-    $('admin-toggle').textContent = active ? '관리자 모드 종료' : '관리자 모드';
-    $('admin-toggle').classList.toggle('bg-[#F2F7FF]', active);
+    const toggle=$('admin-toggle');
+    if(toggle){
+      toggle.textContent=active ? '관리자 모드 종료' : '관리자 모드';
+      toggle.classList.toggle('bg-[#F2F7FF]', active);
+    }
   }
+  window.activateManagerWorkspace=async function(active){
+    token=null;  // UI role is not an API credential.
+    setAdmin(active);
+    if(!active)return;
+    const view=$('manage-view');
+    if(view){
+      let notice=$('manager-demo-notice');
+      if(!notice){
+        notice=document.createElement('div');notice.id='manager-demo-notice';
+        notice.className='rounded-2xl border border-[#D9E9FF] bg-[#F2F7FF] p-4 text-[12px] leading-5 text-[#315BE8]';
+        view.prepend(notice);
+      }
+      notice.textContent='팀장 시연 화면 · 저장된 업무 및 직원 조회만 가능합니다. Slack 수집·업무 배정은 관리자 서버 인증 설정 후 사용할 수 있습니다.';
+    }
+    for(const id of ['admin-sync-button','admin-assign-button']){
+      const button=$(id);if(button){button.disabled=true;button.title='서버 관리자 인증 설정이 필요합니다';button.classList.add('opacity-50','cursor-not-allowed');}
+    }
+    try{
+      await loadDirectory();
+      const output=$('admin-assignment-list');
+      if(output)output.textContent='업무 배정 이력은 관리자 서버 인증 후 조회할 수 있습니다.';
+    }catch(error){
+      const output=$('admin-assignment-list');
+      if(output)output.textContent='업무 목록 조회 실패: '+error.message;
+    }
+  };
   window.toggleAdminMode = async () => {
     if(token){token=null;setAdmin(false);setMainView('briefing');return;}
     const candidate=window.prompt('관리자 비밀번호를 입력하세요. (시연 로그인과 별도)');
@@ -350,12 +379,19 @@
   updateSidebarIdentity();
   showGate(actor==='원이정'?'checking':'approved');
   previousEnterApp();
-  if(actor==='원이정')await refreshGate();
-  const role=el('handover-login-role');if(role)role.textContent='일반사원';
-  if(actor==='김지수'||actor==='팀장'){
+  if(typeof window.activateManagerWorkspace==='function'){
+    await window.activateManagerWorkspace(actor==='팀장'&&!verifiedMode);
+  }
+  if(actor==='팀장'&&!verifiedMode){
+    if(typeof setMainView==='function')setMainView('manage');
+    await inbox();
+  }else if(actor==='김지수'){
     if(typeof setMainView==='function')setMainView('briefing');
     await inbox();
+  }else if(actor==='원이정'){
+    await refreshGate();
   }
+  const role=el('handover-login-role');if(role)role.textContent=actor==='팀장'?'팀장':'일반사원';
  };
  const firstOpenTask=Object.keys(TASKS).find(id=>TASKS[id]?.status!=='완료');
  if(firstOpenTask&&TASKS[state.task]?.status==='완료')state.task=firstOpenTask;
