@@ -42,6 +42,75 @@ def demo_adapter(_=Depends(demo_auth)):
     return FileResponse(ROOT / 'frontend' / 'demo_adapter.js', media_type='application/javascript', headers={'Cache-Control': 'no-store'})
 
 
+
+@app.get('/api/demo/my-works')
+def demo_my_works(person_id: str = '', _=Depends(demo_auth), identity=Depends(slack_actor)):
+    """Explicit on-demand Supabase read: participant (OWNER/REVIEWER/COLLABORATOR) -> Task -> Work.
+    Demo person picker is not authenticated; verified Slack identity takes precedence.
+    No mock Work is inserted when the DB has no corresponding edges.
+    """
+    members = {
+        'U0C20G9MRML', 'U0C22C8M742', 'U0C6WSR5275', 'U0C38J2MUF4'
+    }
+    selected = identity['person_id'] if identity else person_id
+    if selected not in members:
+        raise HTTPException(422, 'Unknown demo team member')
+    snapshot = SupabaseStore().snapshot()
+    people = {p['person_id']:p.get('name') or p['person_id'] for p in snapshot['persons']}
+    task_rows = {t['task_id']:t for t in snapshot['tasks']}
+    event_rows = {e['event_id']:e for e in snapshot['events']}
+    tasks_by_work = {}
+    roles_by_task = {}
+    events_by_task = {}
+    my_tasks = set()
+    accepted = {'OWNER','COLLABORATOR','REVIEWER','RELATED','ASSIGNEE'}
+    for edge in snapshot['edges']:
+        relation = str(edge.get('relation','')).upper()
+        if edge.get('source_type') == 'Work' and edge.get('target_type') == 'Task' and relation == 'HAS_TASK':
+            tasks_by_work.setdefault(edge['source_id'],[]).append(edge['target_id'])
+        elif edge.get('source_type') == 'Person' and edge.get('target_type') == 'Task':
+            role = relation if relation in accepted else str(edge.get('role') or '').upper()
+            if role in accepted:
+                roles_by_task.setdefault(edge['target_id'],[]).append({
+                    'person_id':edge['source_id'], 'name':people.get(edge['source_id'],edge['source_id']),
+                    'role':role
+                })
+                if edge['source_id'] == selected:
+                    my_tasks.add(edge['target_id'])
+        elif edge.get('source_type') == 'Task' and edge.get('target_type') == 'Event' and relation == 'HAS_EVENT':
+            events_by_task.setdefault(edge['source_id'],[]).append(edge['target_id'])
+    result=[]
+    for work in snapshot['works']:
+        ids=tasks_by_work.get(work['work_id'],[])
+        if not my_tasks.intersection(ids):
+            continue
+        tasks=[]
+        for tid in ids:
+            t=task_rows.get(tid)
+            if not t: continue
+            roles=roles_by_task.get(tid,[])
+            owners=[r['name'] for r in roles if r['role']=='OWNER']
+            events=[event_rows[eid] for eid in events_by_task.get(tid,[]) if eid in event_rows]
+            events.sort(key=lambda e:str(e.get('slack_ts') or ''))
+            evidence=next((e.get('evidence') for e in events if e.get('evidence')),None)
+            tasks.append({
+                'task_id':tid, 'title':t.get('title') or t.get('subject') or tid,
+                'status':t.get('status') or 'unknown',
+                'deadline_text':t.get('deadline_text'),
+                'deadline_at':t.get('deadline_at'),
+                'next_action':t.get('next_action'),
+                'owner':', '.join(owners) if owners else None,
+                'participants':roles,
+                'my_roles':[r['role'] for r in roles if r['person_id']==selected],
+                'evidence':evidence,
+                'evidence_event_id':events[0]['event_id'] if events else None
+            })
+        result.append({'work_id':work['work_id'],'title':work.get('title') or work['work_id'],
+                       'tasks':tasks,'my_task_count':len(set(ids)&my_tasks)})
+    return {'person_id':selected,'works':result,'count':len(result),'source':'supabase',
+            'loaded_at':datetime.now(timezone.utc).isoformat(),
+            'authenticated':bool(identity)}
+
 @app.get('/api/demo/data', include_in_schema=False)
 def demo_data(_=Depends(demo_auth), actor=Depends(slack_actor)):
     store = SupabaseStore()
