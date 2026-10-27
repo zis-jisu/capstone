@@ -163,7 +163,7 @@
     const hStatus = root.querySelector('#handover-view section:first-child .text-\\[11px\\].font-bold');
     if (hStatus) hStatus.textContent = 'Slack MCP 분석 데이터 · 시연';
     const top = root.querySelector('#import-modal p'); if(top) top.textContent = '저장된 실제 Slack 분석 결과에서 담당자와 Work를 선택합니다.';
-    const agent = root.getElementById('ask-modal')?.querySelector('p'); if(agent) agent.textContent = '선택 업무의 DB 기록에 기반한 규칙형 데모 응답입니다. LLM Agent 연결은 별도입니다.';
+    const agent = root.getElementById('ask-modal')?.querySelector('p'); if(agent) agent.textContent = '선택 업무의 DB 기록과 ML 우선순위 문맥을 LLM Agent에 전달합니다. Slack 원문 RAG는 아직 미연결입니다.';
     const keyTag = root.querySelector('header .bg-\\[\\#EAFBF4\\]'); if(keyTag) keyTag.textContent = '시연 접속';
     const priorities = root.getElementById('priority-overview');
     if(priorities) priorities.classList.remove('hidden');

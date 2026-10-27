@@ -19,8 +19,10 @@ from src.db import SupabaseStore, export_graph, to_db, TABLE_KEYS
 from src.pipeline import run_pipeline
 from src.slack.mcp_server import collect_context
 from src import ml_bridge
+from src.agent_chat import router as agent_chat_router
 
 app = FastAPI(title="Capstone Slack Handover API", version="0.1.0")
+app.include_router(agent_chat_router)
 origins = [x.strip() for x in os.getenv("FRONTEND_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
 _jobs: dict[str, dict] = {}

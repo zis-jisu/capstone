@@ -29,8 +29,9 @@ Never commit credentials to GitHub. Do not embed `SUPABASE_KEY`, `SLACK_TOKEN` o
 | GET | `/api/works/{work_id}` | Work, Tasks, evidence Events (timeline), relations, Persons |
 | POST | `/api/sync` | Start asynchronous Slack collection -> Event -> Task -> Work -> DB save -> Graph export |
 | GET | `/api/sync/{job_id}` | Progress, success counts, or failure stage |
+| POST | `/api/chat` | Frontend Task context-grounded 업무 Agent answer (Slack RAG not connected) |
 
-All endpoints except `/api/health` require `Authorization: Bearer <API_ACCESS_TOKEN>`.
+All endpoints except `/api/health` require authentication. Existing API endpoints use `Authorization: Bearer <API_ACCESS_TOKEN>`. `/api/chat` also accepts the Railway demo's existing HTTP Basic credentials so the same-origin demo frontend can call it without exposing an API key.
 
 POST payload: `{ "person_id": "U0C22C8M742", "days": 14 }`.
 
