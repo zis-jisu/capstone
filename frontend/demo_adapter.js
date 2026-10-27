@@ -221,24 +221,13 @@
     const renderFlow=(item,selectedTaskId=null)=>{
       const ordered=flowOrder(item).filter(row=>!state.filter||row.task.type===state.filter);
       const selected=ordered.find(row=>row.id===selectedTaskId);
-      const cards=ordered.map(({id,task})=>
-        '<button type="button" onclick="linkingSelectFlowTask('+JSON.stringify(id)+')" aria-pressed="'+String(id===selectedTaskId)+'" class="w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors '+(id===selectedTaskId?'border-[#5D6CFF] bg-[#F3F5FF]':'border-[#E8ECF1] bg-white hover:border-[#B0BEFF]')+'"><span class="text-[13px] font-semibold text-[#191F28]">'+esc(task.name)+'</span><span class="material-symbols-outlined shrink-0 text-[17px] text-[#8894A7]">chevron_right</span></button>'
-      ).join('')||'<div class="p-3 text-[12px] text-[#8B95A1]">해당 유형의 Task가 없습니다.</div>';
-      let detail='<div class="flex min-h-[96px] items-center justify-center rounded-xl border border-dashed border-[#DEE4EB] bg-white px-4 text-center text-[13px] text-[#8B95A1]">상세내역을 보려면 Task를 클릭하세요</div>';
-      if(selected){
-        const task=selected.task,st=style(task),rank=getRank(task),score=getScore(task);
-        detail='<div class="rounded-2xl border border-[#DDE4FF] bg-white p-4 shadow-sm" aria-live="polite">'+
-          '<div class="flex justify-between items-center gap-2"><span class="inline-flex rounded-lg px-3 py-1.5 text-[11px] font-bold" style="background:'+st.bg+';color:'+st.fg+'">'+esc(st.label)+'</span><span class="text-[11px] font-bold text-[#4F6EF7]">우선순위 '+(rank!=null?rank+'위 · ':'')+round(score)+'</span></div>'+
-          '<div class="mt-3 text-[10px] leading-5 text-[#8B95A1]">'+esc(item.work.name)+' · '+esc(selected.id)+'</div>'+
-          '<h4 class="mt-1 text-[17px] font-bold leading-6 text-[#191F28]">'+esc(task.name)+'</h4>'+
-          '<div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-[12px] text-[#6B7684]"><span>마감 '+esc(task.deadline||'미정')+'</span><span>'+esc(task.type==='collab'?'협업':'개인')+'</span></div>'+
-          '<div class="mt-3 border-t border-[#EEF0F3] pt-3 text-[12px] text-[#4E5968]"><span class="font-bold">담당자</span> · '+esc(task.owner||'미확인')+'</div>'+
-          '<div class="mt-2 text-[12px] text-[#4E5968]"><span class="font-bold">다음 할 일</span> · '+esc(task.next||'확인 필요')+'</div>'+
-          '<button type="button" onclick="openPriorityTask('+JSON.stringify(selected.id)+')" class="mt-4 rounded-lg bg-[#F2F7FF] px-3 py-2 text-[12px] font-bold text-[#3182F6]">전체 상세 보기</button></div>';
-      }
+      const cards=ordered.map(({id,task})=>{
+        const st=style(task);
+        return '<button type="button" onclick="linkingSelectFlowTask('+JSON.stringify(id)+')" aria-pressed="'+String(id===selectedTaskId)+'" class="w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors '+(id===selectedTaskId?'border-[#5D6CFF] bg-[#F3F5FF]':'border-[#E8ECF1] bg-white hover:border-[#B0BEFF]')+'"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style="background:'+st.bg+';color:'+st.fg+'"><span class="material-symbols-outlined text-[18px]">'+st.icon+'</span></span><span class="flex-1 text-[13px] font-semibold text-[#191F28]">'+esc(task.name)+'</span><span class="material-symbols-outlined shrink-0 text-[17px] text-[#8894A7]">chevron_right</span></button>';
+      }).join('')||'<div class="p-3 text-[12px] text-[#8B95A1]">해당 유형의 Task가 없습니다.</div>';
       return '<div class="flex flex-wrap items-center justify-between gap-2"><div><p class="text-[11px] text-[#8B95A1]">선택한 Work · Task 목록</p><h3 class="mt-1 text-[17px] font-bold">'+esc(item.work.name)+'</h3></div><span class="text-[12px] text-[#6B7684]">완료 '+item.done+'/'+item.tasks.length+'</span></div>'+
         '<div class="mt-4 space-y-2">'+cards+'</div>'+
-        '<div class="mt-5 border-t border-[#EEF0F3] pt-4"><p class="mb-3 text-[12px] font-bold text-[#6B7684]">Task 상세내역</p>'+detail+'</div>';
+        '<div class="mt-4 text-center text-[12px] text-[#8B95A1]">'+(selected?'아래에서 선택한 Task의 상세 정보를 확인하세요.':'상세내역을 보려면 Task를 클릭하세요')+'</div>';
     };
     window.linkingSelectFlowTask=id=>{
       const item=window.linkingPriorityItems?.[window.linkingActiveWorkIndex];
@@ -246,6 +235,12 @@
       const panel=root.getElementById('work-priority-tasks');
       window.linkingSelectedFlowTaskId=id;
       window.linkingSelectedFlowTaskWork=item.work.id;
+      window.linkingSelectedWorkId=item.work.id;
+      state.project=item.work.id;
+      state.task=id;
+      state.detailTab='timeline';
+      renderTaskList();
+      root.getElementById('briefing-task-section')?.classList.remove('hidden');
       if(panel)panel.innerHTML=renderFlow(item,id);
     };
     window.linkingShowPriorityTasks=i=>{
@@ -261,6 +256,7 @@
       window.linkingSelectedFlowTaskId=null;
       window.linkingSelectedFlowTaskWork=null;
       state.project=item.work.id;
+      root.getElementById('briefing-task-section')?.classList.add('hidden');
       state.detailTab='timeline';
       const select=root.getElementById('project-select');if(select)select.value=item.work.id;
       const eligible=item.work.tasks.filter(id=>TASKS[id]&&(!state.filter||TASKS[id].type===state.filter));
@@ -276,7 +272,7 @@
       const select=root.getElementById('project-select');if(select)select.value=id;
       render();root.getElementById('task-detail')?.scrollIntoView({behavior:'smooth',block:'start'});
     };
-    area.innerHTML='<div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-[17px] font-bold">업무 진행 흐름</h2><div class="flex items-center gap-2"><button type="button" onclick="toggleFilter(\'collab\',this)" aria-pressed="'+(state.filter==='collab')+'" class="filter-btn h-9 px-3 rounded-xl border text-[12px] '+(state.filter==='collab'?'border-[#BFDBFE] bg-[#F2F7FF] text-[#1B64DA] font-bold':'border-[#DDE3EA] bg-white font-medium')+'">협업업무</button><button type="button" onclick="toggleFilter(\'solo\',this)" aria-pressed="'+(state.filter==='solo')+'" class="filter-btn h-9 px-3 rounded-xl border text-[12px] '+(state.filter==='solo'?'border-[#BFDBFE] bg-[#F2F7FF] text-[#1B64DA] font-bold':'border-[#DDE3EA] bg-white font-medium')+'">개인업무</button></div></div>'+
+    area.innerHTML='<div class="flex items-center justify-between gap-3"><h2 class="text-[17px] font-bold">업무 진행 흐름</h2><span class="text-[11px] text-[#8B95A1]">Work 선택 · Task 클릭 시 상세 표시</span></div>'+ 
       '<div class="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4"><div class="lg:col-span-2 space-y-2">'+items.map((item,i)=>
       '<div data-work-priority="'+i+'" onmouseenter="linkingShowPriorityTasks('+i+')" onfocusin="linkingShowPriorityTasks('+i+')" class="rounded-xl border border-[#E5E8EB] bg-white hover:border-[#3182F6]"><button type="button" onclick="linkingChooseWork('+i+')" class="w-full p-3 text-left" aria-label="'+esc(item.work.name)+' 흐름 보기"><div class="flex items-start justify-between gap-2"><div class="min-w-0 text-[13px] leading-5 font-bold">'+(i+1)+'. '+esc(item.work.name)+'</div><span class="shrink-0 text-[11px] font-semibold text-[#3182F6]">'+(item.rank!=null?item.rank+'위 · ':'')+round(item.score)+'</span></div><div class="mt-3 flex items-center gap-3"><div class="h-1.5 flex-1 rounded-full bg-[#E8EBF0] overflow-hidden"><div class="h-full rounded-full bg-[#438763]" style="width:'+pct(item)+'%"></div></div><span class="text-[11px] shrink-0 text-[#6B7684]">완료 '+item.done+'/'+item.tasks.length+'</span></div></button></div>').join('')+
       '</div><div id="work-priority-tasks" class="lg:col-span-3 rounded-xl border border-[#EDF0F4] bg-[#FAFBFC] p-4"><p class="text-[12px] text-[#8B95A1]">Work를 선택하면 Task 흐름이 표시돼요.</p></div></div>';
