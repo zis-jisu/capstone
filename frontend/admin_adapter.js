@@ -458,7 +458,7 @@
     :actor==='김지수'&&mode!=='approved'&&mode!=='error'&&mode!=='checking'
     ?{icon:'inventory_2',tag:'인수 내역 없음',title:'아직 인수받은 업무가 없어요',description:'김지수님이 다른 구성원에게서 승인받아 인수한 업무가 없습니다.'}
     :configs[mode]||configs.empty;
-   gate.innerHTML='<div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F2F7FF] text-[#3182F6]"><span class="material-symbols-outlined text-[30px]">'+config.icon+'</span></div>'+
+   gate.innerHTML=(mode==='checking'?'<div class="mx-auto h-20 w-44 flex items-center justify-center"><img src="/logo.png" alt="LINK-ing 로딩 중" class="w-full h-full object-contain animate-pulse" /></div><div class="mt-3 flex justify-center items-center gap-2 text-[#3182F6]"><span class="material-symbols-outlined animate-spin">progress_activity</span><span class="text-[13px] font-bold">업무를 불러오는 중...</span></div>':'<div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F2F7FF] text-[#3182F6]"><span class="material-symbols-outlined text-[30px]">'+config.icon+'</span></div>')+
    '<div class="mt-5"><span class="inline-flex rounded-full bg-[#F2F7FF] px-3 py-1.5 text-[11px] font-bold text-[#1B64DA]">'+config.tag+'</span></div>'+
    '<h2 class="mt-4 text-[22px] font-bold text-[#191F28]">'+config.title+'</h2>'+
    '<p class="mx-auto mt-3 max-w-[470px] text-[13px] leading-6 text-[#6B7684]">'+config.description+'</p>'+
@@ -478,7 +478,10 @@
   try{
    const all=(await load()).filter(r=>r.requesterId===requesterId);
    let selected=activeWorkIds();
-   if(!selected.length&&all.length){selected=[all[0].workId];setActiveWorkIds(selected);}
+   const approvedIds=[...new Set(all.filter(r=>r.status==='approved').map(r=>r.workId))];
+   selected=selected.filter(id=>all.some(r=>r.workId===id));
+   if(!selected.some(id=>approvedIds.includes(id))&&approvedIds.length){selected=approvedIds;setActiveWorkIds(selected);}
+   else if(!selected.length&&all.length){selected=[all[0].workId];setActiveWorkIds(selected);}
    const records=all.filter(r=>selected.includes(r.workId));
    const approved=records.some(r=>r.status==='approved');
    const pending=records.some(r=>r.status==='pending');
