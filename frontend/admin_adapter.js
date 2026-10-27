@@ -223,7 +223,7 @@
  async function decide(id,status){
   if(actor==='팀장'&&!verifiedMode){saveManagerApproval(id,status);await inbox();message('팀장 '+(status==='approved'?'승인':'반려')+' UI 시연이 완료됐습니다. 실제 DB에는 반영되지 않습니다.');return;}
   if(actor!=='김지수')return message('처리 권한이 없습니다.');
-  try{await api('/'+encodeURIComponent(id)+'/decision','POST',{actor_id:PERSON_IDS[actor],status});await inbox();message(status==='approved'?'DB 승인 완료. 원이정 계정에서 업무를 확인하세요.':'DB에 반려 상태를 저장했습니다.');}
+  try{await api('/'+encodeURIComponent(id)+'/decision','POST',{actor_id:PERSON_IDS[actor],status});await inbox();if(status==='approved'&&window.refreshMlPriorities)window.refreshMlPriorities('김지수').catch(e=>message('우선순위 산출 실패: '+e.message));message(status==='approved'?'DB 승인 완료. 원이정 계정에서 업무를 확인하세요.':'DB에 반려 상태를 저장했습니다.');}
   catch(e){message(e.message)}
  }
   function switchActor(next){
@@ -469,4 +469,96 @@
  const firstOpenTask=Object.keys(TASKS).find(id=>TASKS[id]?.status!=='완료');
  if(firstOpenTask&&TASKS[state.task]?.status==='완료')state.task=firstOpenTask;
  if(typeof renderTaskList==='function'&&Object.keys(TASKS).length)renderTaskList();
+})();
+
+/* ML bridge: calls LINK-ing same-origin server, never sends the ML API key to browsers. */
+(() => {
+  'use strict';
+  const personId = name => ({'원이정':'U0C20G9MRML','김지수':'U0C22C8M742','박서연':'U0C6WSR5275','최민준':'U0C38J2MUF4'})[name] || null;
+  const getStatus = async () => {
+    const r=await fetch('/api/ml/training',{credentials:'same-origin',cache:'no-store'});
+    if(!r.ok)throw Error('학습 상태 조회 실패 (HTTP '+r.status+')');
+    return r.json();
+  };
+  const renderStatus = status => {
+    const el=document.getElementById('model-meta');if(!el)return;
+    const date=status.model_trained_at || status.last_result?.model_trained_at || status.last_result?.trained_at;
+    if(status.status==='running'||status.status==='queued'){
+      el.textContent='모델 학습 중 · '+Number(status.progress_percent||0).toFixed(1)+'%';
+    } else if(date){
+      el.textContent='최신 모델 학습 · '+new Date(date).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'});
+    } else el.textContent=status.status==='failed'?'모델 학습 실패':'모델 학습 이력 없음';
+  };
+  window.refreshMlTrainingStatus=async()=>{const status=await getStatus();renderStatus(status);return status;};
+  let trainingPromise=null;
+  window.startMlTraining=()=>{
+    if(trainingPromise)return trainingPromise;
+    trainingPromise=(async()=>{
+      const r=await fetch('/api/admin/ml/training',{method:'POST',credentials:'same-origin'});
+      if(!r.ok)throw Error('모델 학습 요청 실패 (HTTP '+r.status+')');
+      if(!r.body)throw Error('학습 진행 스트림을 읽을 수 없습니다');
+      const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='',final=null;
+      while(true){
+        const {done,value}=await reader.read();if(done)break;
+        buffer+=decoder.decode(value,{stream:true});
+        const lines=buffer.split('\\n');buffer=lines.pop()||'';
+        for(const line of lines){
+          if(!line.trim())continue;
+          const info=JSON.parse(line);final=info;renderStatus(info);
+          if(info.status==='failed')throw Error(info.error||'모델 학습 실패');
+        }
+      }
+      if(buffer.trim()){final=JSON.parse(buffer);renderStatus(final);}
+      const status=await window.refreshMlTrainingStatus();
+      if(status.status!=='completed' && final?.status!=='completed')throw Error('학습 완료 상태를 확인하지 못했습니다');
+      return status;
+    })().finally(()=>{trainingPromise=null;});
+    return trainingPromise;
+  };
+  window.refreshMlPriorities=async(target)=>{
+    const id=personId(target)||target;
+    if(!id)throw Error('우선순위 대상의 Slack person_id가 필요합니다');
+    const r=await fetch('/api/ml/priorities',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({person_id:id})});
+    if(!r.ok)throw Error('우선순위 산출 실패 (HTTP '+r.status+')');
+    const result=await r.json();window.mlPriorityResult=result;
+    const rankings=result.rankings||{};
+    const matched=Object.entries(rankings).filter(([id])=>window.TASKS?.[id]);
+    if(matched.length){
+      for(const [taskId,value] of matched){
+        window.TASKS[taskId].risk=value.final_priority_score;
+      }
+      if(typeof window.render==='function')window.render();
+    }
+    return result;
+  };
+  const originalSync=window.runAdminSync;
+  if(typeof originalSync==='function')window.runAdminSync=async(...args)=>{
+    await originalSync(...args);
+    const result=document.getElementById('admin-sync-result');
+    if(result?.textContent?.startsWith('수집 성공')){
+      try{await window.startMlTraining();result.textContent+=' · ML 학습 완료 (DB의 최신 그래프 기준)';}
+      catch(e){result.textContent+=' · ML 학습 요청 실패: '+e.message;}
+    }
+  };
+  const originalAssignment=window.createAdminAssignment;
+  if(typeof originalAssignment==='function')window.createAdminAssignment=async(...args)=>{
+    await originalAssignment(...args);
+    if(document.getElementById('admin-assign-result')?.textContent?.startsWith('배정 저장 완료')){
+      try{await window.refreshMlPriorities(document.getElementById('admin-sync-person')?.value||'김지수');}
+      catch(e){document.getElementById('admin-assign-result').textContent+=' · 우선순위 산출 실패: '+e.message;}
+    }
+  };
+  const originalPrepare=window.confirmSenderExport;
+  if(typeof originalPrepare==='function')window.confirmSenderExport=function(...args){
+    const ret=originalPrepare.apply(this,args);
+    if(window.senderDraft?.confirmedAt){
+      window.refreshMlPriorities(window.senderDraft.owner).catch(e=>{
+        if(typeof window.toast==='function')window.toast('인수인계 준비 후 우선순위 산출 실패: '+e.message);
+      });
+    }
+    return ret;
+  };
+  window.refreshMlTrainingStatus().catch(()=>{
+    const el=document.getElementById('model-meta');if(el)el.textContent='모델 학습 상태 조회 불가';
+  });
 })();
