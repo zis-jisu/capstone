@@ -481,11 +481,10 @@
   showGate('checking');
   try{
    const all=(await load()).filter(r=>r.requesterId===requesterId);
-   let selected=activeWorkIds();
+   // Restore all approved Work grants, not only an older browser selection.
    const approvedIds=[...new Set(all.filter(r=>r.status==='approved').map(r=>r.workId))];
-   selected=selected.filter(id=>all.some(r=>r.workId===id));
-   if(!selected.some(id=>approvedIds.includes(id))&&approvedIds.length){selected=approvedIds;setActiveWorkIds(selected);}
-   else if(!selected.length&&all.length){selected=[all[0].workId];setActiveWorkIds(selected);}
+   const selected=approvedIds.length?approvedIds:[...new Set(all.filter(r=>r.status==='pending'||r.status==='rejected').map(r=>r.workId))];
+   setActiveWorkIds(selected);
    const records=all.filter(r=>selected.includes(r.workId));
    const approved=records.some(r=>r.status==='approved');
    const pending=records.some(r=>r.status==='pending');
