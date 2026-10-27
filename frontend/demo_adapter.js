@@ -218,28 +218,38 @@
       const order=sorted.length===item.tasks.length?sorted:item.tasks.map(x=>x.id);
       return order.map(id=>byId.get(id));
     };
-    const renderFlow=item=>{
-      const ordered=flowOrder(item),names=new Map(item.tasks.map(x=>[x.id,x.task.name]));
-      const linked=new Set(item.links.flatMap(d=>[d.taskId,d.prerequisiteId]));
-      const next=ordered.find(x=>status(x.task)==='active')||ordered.find(x=>status(x.task)!=='done');
-      const cards=ordered.map(({id,task})=>{
-        const st=style(task),prereqs=item.links.filter(x=>x.taskId===id).map(x=>x.prerequisiteId);
-        const missing=prereqs.filter(pid=>TASKS[pid]?.status!=='완료');
-        const depsText=prereqs.length?'<div class="mt-2 text-[11px] text-[#6B7684]">선행: '+prereqs.map(pid=>esc(names.get(pid)||pid)).join(' · ')+'</div>':'';
-        const blocked=missing.length&&status(task)!=='done'?'<span class="text-[10px] font-semibold text-[#A35C00]">선행 업무 확인 필요</span>':'';
-        return '<button type="button" onclick="openPriorityTask('+JSON.stringify(id)+')" class="w-full rounded-xl border border-[#E8ECF1] bg-white text-left p-3 hover:border-[#93B9FF] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#3182F6]"><div class="flex gap-3 items-start"><span class="flex h-8 w-8 shrink-0 rounded-full items-center justify-center" style="background:'+st.bg+';color:'+st.fg+'"><span class="material-symbols-outlined text-[18px]">'+st.icon+'</span></span><div class="flex-1 min-w-0"><div class="flex items-start justify-between gap-2"><span class="text-[13px] font-semibold text-[#191F28]">'+esc(task.name)+'</span><span class="shrink-0 text-[10px] font-bold" style="color:'+st.fg+'">'+esc(st.label)+'</span></div><div class="mt-1 flex flex-wrap gap-2 text-[10px] text-[#8B95A1]"><span>'+esc(task.owner||'담당자 미확인')+'</span><span>마감 '+esc(task.deadline||'미정')+'</span></div>'+depsText+blocked+'</div></div></button>';
-      }).join('');
-      const grouped=Boolean(item.links.length);
-      return '<div class="flex flex-wrap items-center justify-between gap-2"><div><p class="text-[11px] text-[#8B95A1]">선택한 Work · Task 흐름</p><h3 class="mt-1 text-[17px] font-bold">'+esc(item.work.name)+'</h3></div><span class="text-[12px] text-[#6B7684]">완료 '+item.done+'/'+item.tasks.length+'</span></div>'+
-        '<div class="mt-4 rounded-xl bg-[#F5F8FC] px-3 py-3"><div class="flex justify-between gap-2 text-[11px] text-[#6B7684]"><span>전체 진행률</span><b>'+pct(item)+'%</b></div><div class="mt-2 h-2 bg-[#E1E7EE] rounded-full overflow-hidden"><div class="h-full rounded-full bg-[#438763]" style="width:'+pct(item)+'%"></div></div></div>'+
-        '<p class="mt-4 mb-2 text-[11px] font-semibold text-[#6B7684]">'+(grouped?'선행관계 기준 Task 흐름':'Task 진행 현황 · 선행 순서 미등록')+'</p>'+
-        '<div class="max-h-[380px] overflow-y-auto space-y-2">'+cards+'</div>'+
-        (grouped?'<p class="mt-2 text-[10px] text-[#8B95A1]">선행관계가 확인된 Task만 연결 기준으로 정렬했어요. 연결되지 않은 Task의 순서는 확정되지 않았어요.</p>':'<p class="mt-2 text-[10px] text-[#8B95A1]">DB에 Task 간 DEPENDS_ON 관계가 없어 임의의 순서나 화살표를 만들지 않았어요.</p>')+
-        (next?'<div class="mt-4 rounded-xl border border-[#D7E5FF] bg-[#F2F7FF] p-3"><div class="text-[11px] font-bold text-[#1B64DA]">현재 확인할 업무</div><div class="mt-1 text-[13px] font-semibold">'+esc(next.task.name)+'</div><div class="mt-1 text-[12px] text-[#52677B]">'+esc(next.task.next||'다음 조치 확인 필요')+'</div></div>':'<div class="mt-4 text-[12px] font-semibold text-[#27834A]">모든 Task가 완료됐어요.</div>');
+    const renderFlow=(item,selectedTaskId=null)=>{
+      const ordered=flowOrder(item);
+      const selected=ordered.find(row=>row.id===selectedTaskId);
+      const cards=ordered.map(({id,task})=>
+        '<button type="button" onclick="linkingSelectFlowTask('+JSON.stringify(id)+')" aria-pressed="'+String(id===selectedTaskId)+'" class="w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors '+(id===selectedTaskId?'border-[#5D6CFF] bg-[#F3F5FF]':'border-[#E8ECF1] bg-white hover:border-[#B0BEFF]')+'"><span class="text-[13px] font-semibold text-[#191F28]">'+esc(task.name)+'</span><span class="material-symbols-outlined shrink-0 text-[17px] text-[#8894A7]">chevron_right</span></button>'
+      ).join('');
+      let detail='<div class="flex min-h-[96px] items-center justify-center rounded-xl border border-dashed border-[#DEE4EB] bg-white px-4 text-center text-[13px] text-[#8B95A1]">상세내역을 보려면 Task를 클릭하세요</div>';
+      if(selected){
+        const task=selected.task,st=style(task),rank=getRank(task),score=getScore(task);
+        detail='<div class="rounded-2xl border border-[#DDE4FF] bg-white p-4 shadow-sm" aria-live="polite">'+
+          '<div class="flex justify-between items-center gap-2"><span class="inline-flex rounded-lg px-3 py-1.5 text-[11px] font-bold" style="background:'+st.bg+';color:'+st.fg+'">'+esc(st.label)+'</span><span class="text-[11px] font-bold text-[#4F6EF7]">우선순위 '+(rank!=null?rank+'위 · ':'')+round(score)+'</span></div>'+
+          '<div class="mt-3 text-[10px] leading-5 text-[#8B95A1]">'+esc(item.work.name)+' · '+esc(selected.id)+'</div>'+
+          '<h4 class="mt-1 text-[17px] font-bold leading-6 text-[#191F28]">'+esc(task.name)+'</h4>'+
+          '<div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-[12px] text-[#6B7684]"><span>마감 '+esc(task.deadline||'미정')+'</span><span>'+esc(task.type==='collab'?'협업':'개인')+'</span></div>'+
+          '<div class="mt-3 border-t border-[#EEF0F3] pt-3 text-[12px] text-[#4E5968]"><span class="font-bold">담당자</span> · '+esc(task.owner||'미확인')+'</div>'+
+          '<div class="mt-2 text-[12px] text-[#4E5968]"><span class="font-bold">다음 할 일</span> · '+esc(task.next||'확인 필요')+'</div>'+
+          '<button type="button" onclick="openPriorityTask('+JSON.stringify(selected.id)+')" class="mt-4 rounded-lg bg-[#F2F7FF] px-3 py-2 text-[12px] font-bold text-[#3182F6]">전체 상세 보기</button></div>';
+      }
+      return '<div class="flex flex-wrap items-center justify-between gap-2"><div><p class="text-[11px] text-[#8B95A1]">선택한 Work · Task 목록</p><h3 class="mt-1 text-[17px] font-bold">'+esc(item.work.name)+'</h3></div><span class="text-[12px] text-[#6B7684]">완료 '+item.done+'/'+item.tasks.length+'</span></div>'+
+        '<div class="mt-4 space-y-2">'+cards+'</div>'+
+        '<div class="mt-5 border-t border-[#EEF0F3] pt-4"><p class="mb-3 text-[12px] font-bold text-[#6B7684]">Task 상세내역</p>'+detail+'</div>';
+    };
+    window.linkingSelectFlowTask=id=>{
+      const item=window.linkingPriorityItems?.[window.linkingActiveWorkIndex];
+      if(!item||!item.tasks.some(row=>row.id===id))return;
+      const panel=root.getElementById('work-priority-tasks');
+      if(panel)panel.innerHTML=renderFlow(item,id);
     };
     window.linkingShowPriorityTasks=i=>{
       const item=window.linkingPriorityItems?.[i],panel=root.getElementById('work-priority-tasks');
       if(!item||!panel)return;
+      window.linkingActiveWorkIndex=i;
       root.querySelectorAll('[data-work-priority]').forEach((n,j)=>{n.classList.toggle('border-[#3182F6]',i===j);n.classList.toggle('bg-[#F2F7FF]',i===j);});
       panel.innerHTML=renderFlow(item);
     };
