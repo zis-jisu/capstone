@@ -428,11 +428,11 @@ function selectProject(id){
   state.project=id;
   state.detailTab='timeline';
   const ids=filteredProjectTasks();
-  state.task=ids[0]||currentProject().tasks[0];
+  state.task=ids.find(taskId=>TASKS[taskId]?.status!=='완료')||ids[0]||currentProject().tasks[0];
   renderTaskList();
 }
 function filteredProjectTasks(){
-  let ids=[...currentProject().tasks].filter(id=>TASKS[id]?.status!=='완료');
+  let ids=[...currentProject().tasks];
   if(state.filter)ids=ids.filter(id=>TASKS[id].type===state.filter);
   const sort=document.getElementById('sort-select')?.value||'risk';
   ids.sort((a,b)=>sort==='risk'?TASKS[b].risk-TASKS[a].risk:sort==='latest'?TASKS[b].updated-TASKS[a].updated:TASKS[a].deadline.localeCompare(TASKS[b].deadline));
@@ -441,25 +441,31 @@ function filteredProjectTasks(){
 function renderTaskList(){
   const p=currentProject();
   const ids=filteredProjectTasks();
-  if(!ids.includes(state.task))state.task=ids[0]||null;
+  const openIds=ids.filter(id=>TASKS[id]?.status!=='완료');
+  const completedIds=ids.filter(id=>TASKS[id]?.status==='완료');
+  if(!ids.includes(state.task))state.task=openIds[0]||completedIds[0]||null;
   const label=document.getElementById('project-label');
   const count=document.getElementById('task-count');
   if(label)label.textContent=p.name;
-  if(count)count.textContent=ids.length+'건';
+  if(count)count.textContent=openIds.length+'건';
   const list=document.getElementById('task-list');
   if(list){
-    list.innerHTML=ids.length?ids.map(id=>{
+    const card=id=>{
       const t=TASKS[id], on=id===state.task;
-      return `<button onclick="selectTask('${id}')" class="w-full text-left rounded-[18px] p-4 transition-all ${on?'border-2 border-[#4F6EF7] bg-white shadow-[0_2px_8px_rgba(79,110,247,.08)]':'border border-[#E5E8EB] bg-white hover:border-[#C7D0DD]'}">
+      const completed=t.status==='완료';
+      return `<button onclick="selectTask('${id}')" class="w-full text-left rounded-[18px] p-4 transition-all ${on?'border-2 border-[#4F6EF7] shadow-[0_2px_8px_rgba(79,110,247,.08)]':completed?'border border-[#B9E9D1] hover:border-[#70C9A4]':'border border-[#E5E8EB] hover:border-[#C7D0DD]'} ${completed?'bg-[#E8F8F0]':'bg-white'}">
         <div class="flex items-center justify-between gap-2">
           <span class="inline-flex px-2.5 py-1 rounded-lg text-[11px] font-bold ${statusBadgeClass(t.status)}">${t.status}</span>
           ${on?'<span class="text-[11px] font-bold text-[#4F6EF7]">선택됨</span>':''}
         </div>
-        <div class="mt-3 flex items-center gap-2 flex-wrap"><span class="px-2 py-1 rounded-full text-[10px] font-bold ${riskBadge(t.risk)}">우선순위 ${priorityLabel(t)}</span><span class="text-[10px] text-[#8B95A1]">${projectForTask(id).name}</span></div>
+        <div class="mt-3 flex items-center gap-2 flex-wrap"><span class="px-2 py-1 rounded-full text-[10px] font-bold ${riskBadge(t.risk)}">우선순위 ${priorityLabel(t)}</span><span class="text-[10px] text-[#8B95A1]">${projectForTask(id).name} · ${id}</span></div>
         <div class="mt-2 text-[18px] font-bold tracking-tight">${t.name}</div>
         <div class="mt-2 flex items-center justify-between gap-2 text-[11px] text-[#8B95A1]"><span class="inline-flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">schedule</span>${t.deadline}</span><span>${t.type==='collab'?'협업':'개인'}</span></div>
       </button>`;
-    }).join(''):`<div class="rounded-2xl bg-[#F8F9FA] p-5 text-[13px] text-[#8B95A1]">현재 필터에 해당하는 업무가 없습니다.</div>`;
+    };
+    const openHtml=openIds.map(card).join('');
+    const completedHtml=completedIds.length?`<details class="rounded-[18px] border border-[#B9E9D1] bg-[#F3FCF8] p-3"><summary class="cursor-pointer list-none flex items-center justify-between text-[13px] font-bold text-[#008B5E]"><span>완료된 업무 ${completedIds.length}건</span><span class="material-symbols-outlined text-[18px]">expand_more</span></summary><div class="mt-3 space-y-3">${completedIds.map(card).join('')}</div></details>`:'';
+    list.innerHTML=openHtml+completedHtml||`<div class="rounded-2xl bg-[#F8F9FA] p-5 text-[13px] text-[#8B95A1]">현재 필터에 해당하는 업무가 없습니다.</div>`;
   }
   renderPriorityOverview();
   renderDetail();
@@ -644,7 +650,7 @@ function renderDetail(){
    <div class="p-6 border-b border-[#F2F4F6]">
      <div class="flex flex-wrap items-start justify-between gap-4">
        <div>
-         <div class="flex items-center gap-2"><span class="text-[12px] font-bold px-2.5 py-1 rounded-full ${riskBadge(t.risk)}">우선순위 ${priorityLabel(t)}</span><span class="text-[12px] font-bold px-2.5 py-1 rounded-full ${statusBadgeClass(t.status)}">${t.status}</span></div>
+         <div class="flex items-center gap-2 flex-wrap"><span class="text-[12px] font-bold px-2.5 py-1 rounded-full ${riskBadge(t.risk)}">우선순위 ${priorityLabel(t)}</span><span class="text-[12px] font-bold px-2.5 py-1 rounded-full ${statusBadgeClass(t.status)}">${t.status}</span><span class="text-[10px] text-[#8B95A1]">${state.task}</span></div>
          <h2 class="mt-3 text-[26px] font-bold tracking-tight">${t.name}</h2>
        </div>
        <div class="text-right"><div class="text-[11px] text-[#8B95A1]">마감</div><div class="text-[18px] font-bold mt-0.5 flex items-center gap-1"><span class="material-symbols-outlined text-[18px]">schedule</span>${t.deadline}</div></div>

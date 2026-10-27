@@ -581,12 +581,12 @@
   };
   window.restoreMlPriorities=()=>{
     const store=readPriorityStore();
-    for(const [taskId,task] of Object.entries(window.TASKS||{})){
+    for(const [taskId,task] of Object.entries(TASKS||{})){
       const value=store.byTaskId?.[taskId]||store.byTaskName?.[normalizeTaskName(task.sourceName||task.name)];
       if(!value)continue;
-      window.TASKS[taskId].risk=value.score;
-      window.TASKS[taskId].priorityScore=value.score;
-      window.TASKS[taskId].priorityRank=value.rank;
+      TASKS[taskId].risk=value.score;
+      TASKS[taskId].priorityScore=value.score;
+      TASKS[taskId].priorityRank=value.rank;
     }
   };
   const getStatus = async () => {
@@ -634,7 +634,7 @@
     if(!id)throw Error('우선순위 대상의 Slack person_id가 필요합니다');
     window.mlPriorityResult=result;
     document.getElementById('ml-priority-results')?.remove();
-    const taskEntries=Object.entries(window.TASKS||{});
+    const taskEntries=Object.entries(TASKS||{});
     const taskIdByName=new Map(taskEntries.map(([taskId,task])=>[normalizeTaskName(task.sourceName||task.name),taskId]));
     const numberOrNull=value=>value==null||value===''?null:(Number.isFinite(Number(value))?Number(value):null);
     const normalized=priorityRows(result).map(([sourceTaskId,value])=>({
@@ -654,14 +654,14 @@
       return candidates[0]?.[0]||null;
     };
     const matched=normalized.map(value=>[
-      window.TASKS?.[value.sourceTaskId] ? value.sourceTaskId : fuzzyTaskId(value.taskName), value,
-    ]).filter(([taskId,value])=>taskId&&window.TASKS?.[taskId]&&value.rank!=null);
+      TASKS?.[value.sourceTaskId] ? value.sourceTaskId : fuzzyTaskId(value.taskName), value,
+    ]).filter(([taskId,value])=>taskId&&TASKS?.[taskId]&&value.rank!=null);
     window.mlPriorityTaskIdsByPerson=window.mlPriorityTaskIdsByPerson||{};
     for(const taskId of window.mlPriorityTaskIdsByPerson[id]||[]){
-      if(window.TASKS?.[taskId]){
-        window.TASKS[taskId].risk=null;
-        window.TASKS[taskId].priorityRank=null;
-        window.TASKS[taskId].priorityScore=null;
+      if(TASKS?.[taskId]){
+        TASKS[taskId].risk=null;
+        TASKS[taskId].priorityRank=null;
+        TASKS[taskId].priorityScore=null;
       }
     }
     const store=readPriorityStore();store.byTaskId=store.byTaskId||{};store.byTaskName=store.byTaskName||{};
@@ -673,7 +673,7 @@
     for(const [taskId,value] of matched){
       const saved={personId:id,sourceTaskId:value.sourceTaskId,taskName:value.taskName,score:value.score,rank:value.rank,savedAt:new Date().toISOString()};
       store.byTaskId[taskId]=saved;
-      store.byTaskName[normalizeTaskName(window.TASKS[taskId].sourceName||window.TASKS[taskId].name)]=saved;
+      store.byTaskName[normalizeTaskName(TASKS[taskId].sourceName||TASKS[taskId].name)]=saved;
     }
     writePriorityStore(store);window.mlPriorityByTask=store.byTaskId;
     window.restoreMlPriorities();
@@ -730,7 +730,7 @@
   // Recover older approvals whose ML response arrived before the browser-side
   // mapper supported the deployed response shape.
   window.setTimeout(async()=>{
-    if(Object.values(window.TASKS||{}).some(task=>Number(task.priorityRank)>0))return;
+    if(Object.values(TASKS||{}).some(task=>Number(task.priorityRank)>0))return;
     try{
       const response=await fetch('/api/demo/handover-requests',{credentials:'same-origin',cache:'no-store'});
       if(!response.ok)return;
