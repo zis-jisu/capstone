@@ -223,39 +223,51 @@
       const selected=ordered.find(row=>row.id===selectedTaskId);
       const cards=ordered.map(({id,task})=>{
         const st=style(task);
-        return '<button type="button" onclick="linkingSelectFlowTask('+JSON.stringify(id)+')" aria-pressed="'+String(id===selectedTaskId)+'" class="w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors '+(id===selectedTaskId?'border-[#5D6CFF] bg-[#F3F5FF]':'border-[#E8ECF1] bg-white hover:border-[#B0BEFF]')+'"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style="background:'+st.bg+';color:'+st.fg+'"><span class="material-symbols-outlined text-[18px]">'+st.icon+'</span></span><span class="flex-1 text-[13px] font-semibold text-[#191F28]">'+esc(task.name)+'</span><span class="material-symbols-outlined shrink-0 text-[17px] text-[#8894A7]">chevron_right</span></button>';
+        return '<button type="button" data-flow-task-id="'+esc(id)+'" aria-pressed="'+String(id===selectedTaskId)+'" class="w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors '+(id===selectedTaskId?'border-[#5D6CFF] bg-[#F3F5FF]':'border-[#E8ECF1] bg-white hover:border-[#B0BEFF]')+'"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style="background:'+st.bg+';color:'+st.fg+'"><span class="material-symbols-outlined text-[18px]">'+st.icon+'</span></span><span class="flex-1 text-[13px] font-semibold text-[#191F28]">'+esc(task.name)+'</span><span class="material-symbols-outlined shrink-0 text-[17px] text-[#8894A7]">chevron_right</span></button>';
       }).join('')||'<div class="p-3 text-[12px] text-[#8B95A1]">해당 유형의 Task가 없습니다.</div>';
       return '<div class="flex flex-wrap items-center justify-between gap-2"><div><p class="text-[11px] text-[#8B95A1]">선택한 Work · Task 목록</p><h3 class="mt-1 text-[17px] font-bold">'+esc(item.work.name)+'</h3></div><span class="text-[12px] text-[#6B7684]">완료 '+item.done+'/'+item.tasks.length+'</span></div>'+
         '<div class="mt-4 space-y-2">'+cards+'</div>'+
         '<div class="mt-4 text-center text-[12px] text-[#8B95A1]">'+(selected?'아래에서 선택한 Task의 상세 정보를 확인하세요.':'상세내역을 보려면 Task를 클릭하세요')+'</div>';
     };
     window.linkingSelectFlowTask=id=>{
-      const item=window.linkingPriorityItems?.[window.linkingActiveWorkIndex];
-      if(!item||!item.tasks.some(row=>row.id===id))return;
-      const panel=root.getElementById('work-priority-tasks');
+      const work=PROJECTS.find(p=>p.tasks.includes(id));
+      if(!work||!TASKS[id])return;
+      const section=root.getElementById('briefing-task-section');
+      // Unhide FIRST; a downstream render exception must never leave details concealed.
+      if(section){section.hidden=false;section.classList.remove('hidden');section.style.display='grid';}
+      window.linkingSelectedWorkId=work.id;
       window.linkingSelectedFlowTaskId=id;
-      window.linkingSelectedFlowTaskWork=item.work.id;
-      window.linkingSelectedWorkId=item.work.id;
-      state.project=item.work.id;
+      window.linkingSelectedFlowTaskWork=work.id;
+      state.project=work.id;
       state.task=id;
       state.detailTab='timeline';
-      // The task belongs to the active type filter; keep it selected after rendering.
-      renderTaskList();
-      state.task=id;
-      renderTaskList();
-      const section=root.getElementById('briefing-task-section');
-      if(section){
-        section.classList.remove('hidden');
-        section.style.setProperty('display','grid','important');
+      const selector=root.getElementById('project-select');
+      if(selector)selector.value=work.id;
+      // Render the original lower two-column detail directly, independently of the Work Flow redraw.
+      try{
+        renderTaskList();
+      }catch(error){
+        console.error('LINK-ing Task detail render failed',error);
+        const list=root.getElementById('task-list');
+        if(list)list.innerHTML='<p class="p-4 text-[13px] text-[#D92D20]">세부 업무 목록 표시 중 오류가 발생했어요.</p>';
+        try{renderDetail();}catch(detailError){console.error('LINK-ing detail failed',detailError);}
       }
-      const freshPanel=root.getElementById('work-priority-tasks');
-      if(freshPanel)freshPanel.innerHTML=renderFlow(item,id);
-      // This is the full existing lower Task detail area, not the compact flow preview.
-      requestAnimationFrame(()=>{
-        const target=root.getElementById('briefing-task-section');
-        if(target){target.style.setProperty('display','grid','important');target.scrollIntoView({behavior:'smooth',block:'start'});}
-      });
+      if(section){section.style.display='grid';section.classList.remove('hidden');}
+      const index=window.linkingPriorityItems?.findIndex(x=>x.work.id===work.id)??-1;
+      if(index>=0)window.linkingShowPriorityTasks(index);
+      const active=root.querySelector('[data-flow-task-id="'+id+'"]');
+      if(active)active.setAttribute('aria-pressed','true');
+      root.getElementById('briefing-task-section')?.scrollIntoView({behavior:'smooth',block:'start'});
     };
+    if(!window.linkingFlowTaskClickBound){
+      window.linkingFlowTaskClickBound=true;
+      root.addEventListener('click',event=>{
+        const trigger=event.target.closest?.('[data-flow-task-id]');
+        if(!trigger)return;
+        event.preventDefault();
+        window.linkingSelectFlowTask(trigger.getAttribute('data-flow-task-id'));
+      });
+    }
     window.linkingShowPriorityTasks=i=>{
       const item=window.linkingPriorityItems?.[i],panel=root.getElementById('work-priority-tasks');
       if(!item||!panel)return;
