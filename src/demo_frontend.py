@@ -427,6 +427,18 @@ def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(
     return {'request': updated[0]}
 , max_length=40)
 
+@app.post('/api/demo/slack-link')
+def demo_slack_link(_=Depends(demo_auth), identity=Depends(slack_actor)):
+    # Demo bootstrap: use already-processed Supabase data, not a new Slack MCP collection.
+    # In verified Slack mode, only an approved source account may initiate training.
+    if slack_login_enabled() and (not identity or identity['person_id'] != JISOO_ID):
+        raise HTTPException(403, 'Supervisor login is required')
+    snapshot = SupabaseStore().snapshot()
+    if not snapshot['works'] or not snapshot['tasks']:
+        raise HTTPException(409, 'Supabase Work/Task data is empty')
+    return ml_bridge.stream_training()
+
+
 @app.get('/api/ml/training')
 def ml_training_status(_=Depends(demo_auth)):
     return ml_bridge.training_status()
