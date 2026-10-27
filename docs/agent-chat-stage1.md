@@ -25,3 +25,9 @@ python -m uvicorn src.frontend_api:app --host 127.0.0.1 --port 8000
 - Graph Task/Event/Slack 원문 ID 매핑
 - Supabase 원문 검색 및 출처 반환
 - 근거 부족 시 답변 보류, 우선순위 근거와 메시지 타임스탬프 표시
+
+## 독립 개발: Graph 연계 원문 검색
+- `src/agent_retrieval.py`: Task → HAS_EVENT → Event.source_id → slack_messages.message_id 조회; Work는 역방향 HAS_TASK로 조회.
+- `tests/test_agent_retrieval.py`: 가짜 저장소 기반 오프라인 단위 테스트(아직 실행 검증 전).
+- 검색 함수는 API에 **아직 연결하지 않음**. 호출 전에 서버 측 로그인 사용자와 해당 Task의 접근 권한을 검증해야 함.
+- 실제 DB에서 `slack_messages` 테이블과 `source_id` 매핑이 유효한지 조회 테스트 필요.
