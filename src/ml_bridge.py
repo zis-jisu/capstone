@@ -9,6 +9,18 @@ from fastapi.responses import StreamingResponse
 
 BASE = "https://capstone-production-0d32.up.railway.app"
 
+
+def trained_at(status):
+    """Return the latest model timestamp across current and legacy API shapes."""
+    last_result = status.get("last_result") or {}
+    latest_model = status.get("latest_model") or {}
+    return (
+        status.get("model_trained_at")
+        or last_result.get("model_trained_at")
+        or last_result.get("trained_at")
+        or latest_model.get("trained_at")
+    )
+
 def _settings():
     key = os.getenv("MODEL_API_KEY", "")
     if not key:

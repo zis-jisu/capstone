@@ -515,7 +515,7 @@
   };
   const renderStatus = status => {
     const el=document.getElementById('model-meta');if(!el)return;
-    const date=status.model_trained_at || status.last_result?.model_trained_at || status.last_result?.trained_at;
+    const date=status.model_trained_at || status.last_result?.model_trained_at || status.last_result?.trained_at || status.latest_model?.trained_at;
     if(status.status==='running'||status.status==='queued'){
       el.textContent='모델 학습 중 · '+Number(status.progress_percent||0).toFixed(1)+'%';
     } else if(date){
@@ -585,9 +585,10 @@
   };
   const originalAssignment=window.createAdminAssignment;
   if(typeof originalAssignment==='function')window.createAdminAssignment=async(...args)=>{
+    const assigneeId=document.getElementById('admin-assignee')?.value;
     await originalAssignment(...args);
     if(document.getElementById('admin-assign-result')?.textContent?.startsWith('배정 저장 완료')){
-      try{await window.refreshMlPriorities(document.getElementById('admin-sync-person')?.value||'김지수');}
+      try{await window.refreshMlPriorities(assigneeId);}
       catch(e){document.getElementById('admin-assign-result').textContent+=' · 우선순위 산출 실패: '+e.message;}
     }
   };
