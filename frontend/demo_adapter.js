@@ -240,8 +240,11 @@
       state.task=id;
       state.detailTab='timeline';
       renderTaskList();
-      root.getElementById('briefing-task-section')?.classList.remove('hidden');
-      if(panel)panel.innerHTML=renderFlow(item,id);
+      const section=root.getElementById('briefing-task-section');
+      if(section){section.style.display='grid';section.classList.remove('hidden');}
+      // renderTaskList re-creates the flow panel: use the current element, not the detached one.
+      const freshPanel=root.getElementById('work-priority-tasks');
+      if(freshPanel)freshPanel.innerHTML=renderFlow(item,id);
     };
     window.linkingShowPriorityTasks=i=>{
       const item=window.linkingPriorityItems?.[i],panel=root.getElementById('work-priority-tasks');
@@ -256,7 +259,7 @@
       window.linkingSelectedFlowTaskId=null;
       window.linkingSelectedFlowTaskWork=null;
       state.project=item.work.id;
-      root.getElementById('briefing-task-section')?.classList.add('hidden');
+      const section=root.getElementById('briefing-task-section');if(section)section.style.display='none';
       state.detailTab='timeline';
       const select=root.getElementById('project-select');if(select)select.value=item.work.id;
       const eligible=item.work.tasks.filter(id=>TASKS[id]&&(!state.filter||TASKS[id].type===state.filter));
