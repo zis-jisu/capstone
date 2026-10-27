@@ -4,6 +4,7 @@ Copy into src/demo_frontend.py in the slack branch; do not overwrite src/fronten
 import os
 import secrets
 import logging
+import re
 from pathlib import Path
 
 from fastapi import Depends, HTTPException, Request
@@ -183,7 +184,7 @@ def demo_my_works(person_id: str = '', _=Depends(demo_auth), identity=Depends(sl
             'authenticated':bool(identity)}
 
 @app.get('/api/demo/data', include_in_schema=False)
-def demo_data(_=Depends(demo_auth), actor=Depends(slack_actor)):
+def demo_data(work_ids: str = '', _=Depends(demo_auth), actor=Depends(slack_actor)):
     mock_store = _frontend_store()
     original_store = SupabaseStore()
     raw_mock = mock_store.snapshot()
@@ -210,6 +211,13 @@ def demo_data(_=Depends(demo_auth), actor=Depends(slack_actor)):
             allowed_work_ids = {g['work_id'] for g in grants}
             snapshot, messages = _filter_work_data(snapshot, messages, allowed_work_ids)
         # Graph ML metadata is summary only; no raw graph nodes are exposed here.
+    if work_ids:
+        requested = {value.strip() for value in work_ids.split(',') if value.strip()}
+        if len(requested) > 50 or any(not re.fullmatch(r'[A-Za-z0-9_-]{1,90}', value) for value in requested):
+            raise HTTPException(422, 'Invalid selected Work IDs')
+        # Apply after verified grants so a query cannot expand access.
+        snapshot, messages = _filter_work_data(snapshot, messages, requested)
+        graph = export_graph(snapshot)
     return {
         **snapshot,
         'slack_messages': messages,

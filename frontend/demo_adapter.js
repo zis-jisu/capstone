@@ -10,6 +10,7 @@
 
   function attach(data) {
     const works = data.works || [], tasks = data.tasks || [], events = data.events || [];
+    window.handoverWorkTitles={...(window.handoverWorkTitles||{}),...Object.fromEntries(works.map(w=>[w.work_id,w.title]))};
     const edges = data.edges || [], persons = data.persons || [], messages = data.slack_messages || [];
     if (!works.length || !tasks.length) {
       PROJECTS.splice(0, PROJECTS.length);
@@ -108,19 +109,21 @@
       const dependencies = deps.filter(e => e.source_id === taskId);
       const line = (x1,y1,x2,y2,label) => `<g><path class="graph-edge primary" marker-end="url(#demo-arrow)" d="M ${x1} ${y1} L ${x2} ${y2}"></path><text class="graph-edge-label" x="${(x1+x2)/2}" y="${(y1+y2)/2-8}" text-anchor="middle">${html(label)}</text></g>`;
       const node = (x,y,name,meta,cls='') => `<g class="graph-node ${cls}"><rect x="${x-90}" y="${y-27}" width="180" height="54" rx="14"></rect><text class="title" x="${x}" y="${y-2}" text-anchor="middle">${html(shortText(name,18))}</text><text class="meta" x="${x}" y="${y+14}" text-anchor="middle">${html(meta)}</text></g>`;
-      let svg = `<svg viewBox="0 0 760 360" role="img" aria-label="${html(t.name)} 실제 업무 관계"><defs><marker id="demo-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto"><polygon points="0 0,8 3.5,0 7" fill="#9AA5B1"></polygon></marker></defs>`;
-      const places = [[110,100],[650,100],[110,260],[650,260],[375,45]];
+      let svg = `<svg viewBox="0 0 760 410" role="img" aria-label="${html(t.name)} 실제 업무 관계"><defs><marker id="demo-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto"><polygon points="0 0,8 3.5,0 7" fill="#9AA5B1"></polygon></marker></defs>`;
+      const places = [[110,140],[650,140],[110,310],[650,310],[375,365]];
       for (const [i,e] of rels.entries()) {
         const p=peopleMap.get(e.source_id), xy=places[i];
         if(!p) continue;
-        svg += line(xy[0],xy[1],375,178,e.relation);
+        const from=xy[0]<375?[xy[0]+90,xy[1]]:xy[0]>375?[xy[0]-90,xy[1]]:[375,xy[1]-27];
+        const to=xy[0]<375?[285,230]:xy[0]>375?[465,230]:[375,257];
+        svg += line(from[0],from[1],to[0],to[1],e.relation);
         svg += node(xy[0],xy[1],p.name,e.relation,'person');
       }
       if(dependencies.length){
         const dep = taskMap.get(dependencies[0].target_id);
-        if(dep){svg += line(375,207,375,305,'DEPENDS_ON');svg += node(375,325,dep.title,'선행 Task','task');}
+        if(dep){svg += line(375,203,375,87,'DEPENDS_ON');svg += node(375,60,dep.title,'선행 Task','task');}
       }
-      svg += node(375,178,t.name,'선택한 Task','task');
+      svg += node(375,230,t.name,'선택한 Task','task');
       svg += '</svg>';
       return `<div class="relationship-graph-wrap overflow-x-auto">${svg}</div><div class="mt-2 text-[10px] text-[#8B95A1]">Supabase edges의 담당자·검수자·협업자·선행 Task 관계만 표시합니다.</div>`;
     };
@@ -226,7 +229,8 @@
     attach(await response.json());
   };
   window.loadApprovedHandovers = async function(workIds) {
-    const response=await fetch('/api/demo/data',{credentials:'same-origin',cache:'no-store'});
+    const ids=[...new Set(workIds)];
+    const response=await fetch('/api/demo/data?work_ids='+encodeURIComponent(ids.join(',')),{credentials:'same-origin',cache:'no-store'});
     if(!response.ok)throw new Error('승인 업무 조회 실패 (HTTP '+response.status+')');
     const data=await response.json(), allowed=new Set(workIds);
     const works=(data.works||[]).filter(w=>allowed.has(w.work_id));

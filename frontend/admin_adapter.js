@@ -155,7 +155,6 @@
  const TEAM=['김지수','박서연','최민준'], ACCOUNT=['원이정','김지수','박서연','최민준','팀장','관리자'];
  const PERSON_IDS={'원이정':'U0C20G9MRML','김지수':'U0C22C8M742','박서연':'U0C6WSR5275','최민준':'U0C38J2MUF4'};
  const API='/api/demo/handover-requests';
- const WORK_ID='WORK-00020', WORK_TITLE='신차 출시 캠페인 콘텐츠 현지화 및 배포 준비';
  let actor='원이정';
  // v2 resets UI-only approvals created before the priority POST/storage flow existed.
  const DEMO_MANAGER_KEY='linking_manager_ui_approvals_v2';
@@ -171,8 +170,8 @@
   return res.json();
  }
  async function load(){return (await api()).requests.map(r=>({
-  id:r.request_id,requester:'원이정',owner:'김지수',workId:r.work_id,
-  title:WORK_TITLE,status:(!verifiedMode&&r.status==='pending'&&managerApprovals()[r.request_id])||r.status,approvedBy:(!verifiedMode&&r.status==='pending'&&managerApprovals()[r.request_id])?'팀장 (UI 시연)':Object.keys(PERSON_IDS).find(name=>PERSON_IDS[name]===r.approved_by)||r.approved_by||'-',
+  id:r.request_id,requester:Object.keys(PERSON_IDS).find(name=>PERSON_IDS[name]===r.requester_id)||r.requester_id,owner:Object.keys(PERSON_IDS).find(name=>PERSON_IDS[name]===r.source_person_id)||r.source_person_id,workId:r.work_id,
+  title:window.handoverWorkTitles?.[r.work_id]||r.work_id,status:(!verifiedMode&&r.status==='pending'&&managerApprovals()[r.request_id])||r.status,approvedBy:(!verifiedMode&&r.status==='pending'&&managerApprovals()[r.request_id])?'팀장 (UI 시연)':Object.keys(PERSON_IDS).find(name=>PERSON_IDS[name]===r.approved_by)||r.approved_by||'-',
   requesterId:r.requester_id,sourceId:r.source_person_id
  }));}
  async function updateInboxBadge(){
@@ -205,7 +204,17 @@
  }
  function closePanel(){const n=el('handover-demo-panel');if(n){n.classList.add('hidden');n.classList.remove('flex');}}
  function message(s){if(typeof toast==='function')toast(s);else alert(s);}
- function selectedWork(){return (IMPORT_DATA[importState.person]||[]).some(g=>(g.workId===WORK_ID||g.project===WORK_TITLE)&&g.tasks.every(t=>importState.selected.has(g.project+'::'+t)));}
+ const ACTIVE_WORKS_KEY='linking_active_handover_works_v1';
+ function activeWorkIds(){
+  try{return JSON.parse(localStorage.getItem(ACTIVE_WORKS_KEY)||'{}')[PERSON_IDS[actor]]||[];}catch{return [];}
+ }
+ function setActiveWorkIds(ids){
+  let store;try{store=JSON.parse(localStorage.getItem(ACTIVE_WORKS_KEY)||'{}');}catch{store={};}
+  store[PERSON_IDS[actor]]=[...new Set(ids)];localStorage.setItem(ACTIVE_WORKS_KEY,JSON.stringify(store));
+ }
+ function selectedImportWorks(){
+  return (IMPORT_DATA[importState.person]||[]).filter(g=>g.workId&&g.tasks.length&&importWorkKeys(g).every(key=>importState.selected.has(key)));
+ }
  async function selectCatalogPerson(name){
   const sourceId=PERSON_IDS[name];
   IMPORT_DATA[name]=[];
@@ -215,6 +224,7 @@
    const res=await fetch('/api/demo/handover-catalog?source_person_id='+encodeURIComponent(sourceId),{credentials:'same-origin',cache:'no-store'});
    if(!res.ok)throw new Error('업무 목록 조회 실패 (HTTP '+res.status+')');
    const data=await res.json();
+   window.handoverWorkTitles={...(window.handoverWorkTitles||{}),...Object.fromEntries((data.works||[]).map(w=>[w.work_id,w.title]))};
    IMPORT_DATA[name]=(data.works||[]).map(w=>({workId:w.work_id,project:w.title,tasks:w.tasks.map(t=>t.title)}));
    if(importState.person===name){renderImportTasks();renderImportFlow();}
   }catch(error){
@@ -240,6 +250,7 @@
   let r;try{r=(await load()).find(x=>x.id===id&&x.status==='approved'&&x.requesterId===PERSON_IDS[actor]);}
   catch(e){return message(e.message)}
   if(!r)return message('승인된 인수인계만 확인 가능합니다.');
+  setActiveWorkIds([r.workId]);
   try{await window.loadApprovedHandovers([r.workId]);}catch(error){return message(error.message);}
   closePanel();
   if(PROJECTS.some(p=>p.id===r.workId)){
@@ -248,7 +259,7 @@
    const select=el('project-select');if(select)select.value=r.workId;
    if(typeof setMainView==='function')setMainView('briefing');
    render();
-   message('김지수에게 이어받은 WORK-00020을 표시했습니다.');
+   message(r.owner+'님에게 이어받은 '+r.title+' 업무를 표시했습니다.');
   }else{
    showGate('error');message('승인된 Work를 DB에서 찾지 못했습니다. 업무 데이터를 다시 확인해 주세요.');
   }
@@ -259,19 +270,21 @@
   catch(e){return message(e.message)}
   const pending=all.filter(r=>r.status==='pending');
   updateInboxBadge();
-  let body=pending.length?pending.map(r=>'<div class="mb-3 rounded-2xl border p-4"><div class="font-bold">'+safe(r.requester)+' → '+safe(r.owner)+'</div><div class="mt-2 text-[13px]">'+safe(r.title)+'</div><div class="mt-3 flex gap-2"><button data-verify="'+safe(r.id)+'" class="rounded-xl bg-[#3182F6] px-4 py-2 text-[12px] font-bold text-white">유비키 인증</button><button data-reject="'+safe(r.id)+'" class="rounded-xl border px-4 py-2 text-[12px]">반려</button></div></div>').join(''):'<div class="rounded-xl bg-[#F8F9FA] p-5 text-[13px]">대기 중인 인수인계 요청이 없습니다.</div>';
+  let body=pending.length?pending.map(r=>'<div class="mb-3 rounded-2xl border p-4"><div class="font-bold">'+safe(r.requester)+' → '+safe(r.owner)+'</div><div class="mt-2 text-[13px]">'+safe(r.title)+'</div><div class="mt-3 flex gap-2"><button data-verify="'+safe(r.id)+'" class="rounded-xl bg-[#3182F6] px-4 py-2 text-[12px] font-bold text-white">유비키 인증·승인</button><button data-reject="'+safe(r.id)+'" class="rounded-xl border px-4 py-2 text-[12px]">반려</button></div></div>').join(''):'<div class="rounded-xl bg-[#F8F9FA] p-5 text-[13px]">대기 중인 인수인계 요청이 없습니다.</div>';
   const done=all.filter(r=>r.status!=='pending');
   if(done.length)body+='<h3 class="mt-5 mb-2 font-bold">처리 이력</h3>'+done.map(r=>'<div class="flex items-center justify-between gap-3 border-b py-3 text-[12px]"><span>'+safe(r.requester)+' → '+safe(r.owner)+' · '+safe(r.approvedBy)+'</span>'+approvalBadge(r.status)+'</div>').join('');
   panel(actor==='팀장'?'팀장 인수인계 승인함 (UI 시연 전용)':'김지수 인수인계 승인함',body);
   el('handover-demo-panel').querySelectorAll('[data-verify]').forEach(b=>b.onclick=()=>verify(b.dataset.verify));
   el('handover-demo-panel').querySelectorAll('[data-reject]').forEach(b=>b.onclick=()=>decide(b.dataset.reject,'rejected'));
  }
-  async function verify(id){
-  let r;try{r=(await load()).find(x=>x.id===id&&x.status==='pending');}
-  catch(e){return message(e.message)}
-  if(!r||(actor==='팀장'?verifiedMode:PERSON_IDS[actor]!==r.sourceId))return message('승인할 수 없는 요청입니다.');
-  panel(actor==='팀장'?'팀장 승인 시연 (DB 미반영)':'유비키 인증','<div class="rounded-2xl bg-[#F2F7FF] p-6 text-center"><div class="text-[38px]">🔑</div><h3 class="mt-3 text-[17px] font-bold">보안키 터치 시연</h3><p class="mt-2 text-[12px] text-[#6B7684]">보안키 확인 절차를 시연하는 화면입니다.</p><button id="handover-confirm" class="mt-5 rounded-xl bg-[#3182F6] px-5 py-3 text-white font-bold">인증 확인 · 승인</button></div>');
-  el('handover-confirm').onclick=()=>decide(id,'approved');
+ const approvalInFlight=new Set();
+ async function verify(id){
+  if(approvalInFlight.has(id))return;
+  approvalInFlight.add(id);
+  const buttons=el('handover-demo-panel')?.querySelectorAll('[data-verify]')||[];
+  buttons.forEach(button=>{if(button.dataset.verify===id){button.disabled=true;button.textContent='승인 처리 중…';}});
+  try{await decide(id,'approved');}
+  finally{approvalInFlight.delete(id);buttons.forEach(button=>{if(button.dataset.verify===id){button.disabled=false;button.textContent='유비키 인증·승인';}});}
  }
   async function decide(id,status){
    if(actor==='팀장'&&!verifiedMode){
@@ -346,19 +359,26 @@
   previousFlow();
   const name=el('import-action-title'),summary=el('import-selection-summary'),btn=el('import-action-btn'),slack=el('slack-access-panel');
   if(slack)slack.classList.add('hidden');
-  if(importState.step===1){name.textContent='인수인계 승인 요청';const supported=importState.person==='김지수';btn.textContent=supported?'인수인계 요청 보내기':'관련 Work 확인 (시연)';btn.onclick=supported?requestImportApproval:()=>message('박서연·최민준은 현재 Work 목록 시연만 지원하며, 승인 요청은 김지수의 WORK-00020만 연결되어 있습니다.');}
-  else {name.textContent='승인 대기';summary.textContent='김지수님이 승인해야 업무를 이어받을 수 있어요.';btn.textContent='요청 상태 확인';btn.onclick=()=>{closeImport();received()};}
+  if(importState.step===1){name.textContent='인수인계 승인 요청';btn.textContent='선택 업무 승인 요청';btn.onclick=requestImportApproval;}
+  else {name.textContent='승인 대기';summary.textContent=importState.person+'님이 승인하면 선택한 업무만 이어받을 수 있어요.';btn.textContent='요청 상태 확인';btn.onclick=()=>{closeImport();received()};}
  };
  requestImportApproval=async function(){
-  if(actor!=='원이정'||importState.person!=='김지수')return message('이번 시연은 원이정 → 김지수 요청 기준입니다.');
-  if(!selectedWork())return message('김지수의 WORK-00020을 선택해 주세요.');
+  const requesterId=PERSON_IDS[actor],sourceId=PERSON_IDS[importState.person];
+  const selected=selectedImportWorks();
+  if(!requesterId||!sourceId||requesterId===sourceId)return message('인계자와 인수자를 확인해 주세요.');
+  if(!selected.length)return message('인수받을 Work를 선택해 주세요.');
   const btn=el('import-action-btn');if(btn)btn.disabled=true;
+  setActiveWorkIds(selected.map(work=>work.workId));
   try{
-   await api('','POST',{requester_id:PERSON_IDS['원이정'],source_person_id:PERSON_IDS['김지수'],work_id:WORK_ID});
+   const records=await load();
+   for(const work of selected){
+    const existing=records.find(r=>r.requesterId===requesterId&&r.sourceId===sourceId&&r.workId===work.workId&&['pending','approved'].includes(r.status));
+    if(!existing)await api('','POST',{requester_id:requesterId,source_person_id:sourceId,work_id:work.workId});
+   }
    updateInboxBadge();
    importState.step=2;importState.approved=false;renderImportFlow();
-   showGate('pending');
-   message('Supabase에 인수인계 요청을 저장했습니다. 김지수 UI에서 승인하세요.');
+   await refreshGate();
+   message(selected.length+'개 Work만 요청했습니다. '+importState.person+'님이 승인하면 선택한 업무만 표시됩니다.');
   }catch(e){message(e.message)}
   finally{if(btn)btn.disabled=false}
  };
@@ -432,7 +452,10 @@
   if(!requesterId){showGate('empty');return;}
   showGate('checking');
   try{
-   const records=(await load()).filter(r=>r.requesterId===requesterId);
+   const all=(await load()).filter(r=>r.requesterId===requesterId);
+   let selected=activeWorkIds();
+   if(!selected.length&&all.length){selected=[all[0].workId];setActiveWorkIds(selected);}
+   const records=all.filter(r=>selected.includes(r.workId));
    const approved=records.some(r=>r.status==='approved');
    const pending=records.some(r=>r.status==='pending');
    const rejected=records.some(r=>r.status==='rejected');

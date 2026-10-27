@@ -489,13 +489,17 @@ function nominalizeTimelineText(value){
  const sep=input.lastIndexOf(' · ');
  const prefix=sep>=0?input.slice(0,sep+3):'';
  let action=sep>=0?input.slice(sep+3):input;
+ const noun='작업|검토|확인|수정|작성|진행|처리|요청|제출|완료|전달|반영|배포|준비|검증|발송|정리|확정|연락|사용|공유|교체|변경|생성|변환|추가|업데이트|취합|승인|수신|등록|선정|검수';
  const endings=[
-  [/진행하고\s*있습니다$/u,'진행 중'],
-  [/확인하고\s*있습니다$/u,'확인 중'],
-  [/작업하고\s*있습니다$/u,'작업 중'],
-  [/예정입니다$/u,'예정'],
-  [/필요합니다$/u,'필요'],
-  [/(작업|검토|확인|수정|작성|진행|처리|요청|제출|완료|전달|반영|배포|준비|검증|발송|정리)(?:했습니다|합니다|했다|한다|하다)$/u,'$1']
+  [new RegExp('('+noun+')하고\\s*있(?:습니다|어요|다)$','u'),'$1 중'],
+  [new RegExp('('+noun+')할\\s*예정(?:입니다|이다|이에요)?$','u'),'$1 예정'],
+  [new RegExp('('+noun+')(?:하겠습니다|하겠어요|하기로 했습니다|하기로 했다)$','u'),'$1 예정'],
+  [new RegExp('('+noun+')해야\\s*(?:합니다|한다|해요|함)$','u'),'$1 필요'],
+  [new RegExp('('+noun+')하지\\s*(?:말아주세요|말아주십시오|마세요)$','u'),'$1 금지'],
+  [new RegExp('('+noun+')하지\\s*않(?:다|습니다|음)$','u'),'$1하지 않음'],
+  [/예정입니다$/u,'예정'],[/필요합니다$/u,'필요'],
+  [new RegExp('('+noun+')(?:해두었습니다|해 두었습니다|했습니다|하였습니다|합니다|했다|한다|하다|함)$','u'),'$1'],
+  [new RegExp('('+noun+')(?:되었습니다|됐습니다|됩니다|되었다|된다|되다|됨)$','u'),'$1']
  ];
  for(const [pattern,result] of endings){
   if(pattern.test(action)){action=action.replace(pattern,result);break;}
@@ -741,7 +745,7 @@ function renderImportPeople(){
  el.innerHTML=people.map(p=>`<button onclick="selectImportPerson('${p}')" class="w-full rounded-2xl border ${importState.person===p?'border-[#3182F6] bg-[#F2F7FF]':'border-[#EEF0F3] bg-white'} p-3 flex items-center gap-3 text-left"><div class="w-9 h-9 rounded-full bg-[#E8F3FF] text-[#3182F6] flex items-center justify-center font-bold text-[12px]">${p[0]}</div><div><div class="text-[13px] font-bold">${p}</div><div class="text-[11px] text-[#8B95A1] mt-0.5">업무 담당자</div></div></button>`).join('')||'<div class="text-[12px] text-[#8B95A1] p-3">검색 결과가 없습니다.</div>';
 }
 function selectImportPerson(p){importState.person=p;importState.selected=new Set();importState.step=1;importState.approved=false;importState.slackConnected=false;renderImportPeople();renderImportTasks();renderImportFlow();}
-function importWorkKeys(group){return group.tasks.map(task=>group.project+'::'+task);}
+function importWorkKeys(group){return group.tasks.map(task=>(group.workId||group.project)+'::'+task);}
 function importSelectedWorkCount(){return (IMPORT_DATA[importState.person]||[]).filter(g=>importWorkKeys(g).every(k=>importState.selected.has(k))).length;}
 function toggleImportWork(index){
  const group=(IMPORT_DATA[importState.person]||[])[index];if(!group)return;
@@ -760,7 +764,7 @@ function renderImportTasks(){
 }
 function toggleImportTask(key){if(importState.selected.has(key))importState.selected.delete(key);else importState.selected.add(key);renderImportTasks();}
 function toggleAllImportTasks(){
- if(!importState.person)return; const all=[];(IMPORT_DATA[importState.person]||[]).forEach(g=>g.tasks.forEach(t=>all.push(g.project+'::'+t)));
+ if(!importState.person)return; const all=[];(IMPORT_DATA[importState.person]||[]).forEach(g=>all.push(...importWorkKeys(g)));
  const allSelected=all.length&&all.every(k=>importState.selected.has(k)); importState.selected=new Set(allSelected?[]:all); renderImportTasks();
 }
 function updateImportSummary(){
@@ -1248,7 +1252,7 @@ setMainView=function(view){if(senderEditing){toast('수정을 저장하거나 �
 
 render();
 </script>
-<script src="/demo_adapter.js?v=20261027-handover-catalog"></script>
-<script src="/admin_adapter.js?v=20261027-handover-catalog"></script>
+<script src="/demo_adapter.js?v=20261027-handover-selection"></script>
+<script src="/admin_adapter.js?v=20261027-handover-selection"></script>
 </body>
 </html>
