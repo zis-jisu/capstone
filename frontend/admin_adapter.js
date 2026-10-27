@@ -564,15 +564,25 @@
     const result=await r.json();window.mlPriorityResult=result;
     document.getElementById('ml-priority-results')?.remove();
     const rankings=result.rankings||{};
-    const matched=Object.entries(rankings).filter(([id])=>window.TASKS?.[id]);
-    for(const task of Object.values(window.TASKS||{})){
-      task.risk=null;task.priorityRank=null;task.priorityScore=null;
+    const normalizeName=value=>String(value??'').replace(/\s+/g,' ').trim().toLocaleLowerCase('ko-KR');
+    const taskIdByName=new Map(Object.entries(window.TASKS||{}).map(([taskId,task])=>[normalizeName(task.sourceName||task.name),taskId]));
+    const matched=Object.entries(rankings).map(([taskId,value])=>[
+      window.TASKS?.[taskId] ? taskId : taskIdByName.get(normalizeName(value.task_name)), value,
+    ]).filter(([taskId])=>taskId&&window.TASKS?.[taskId]);
+    window.mlPriorityTaskIdsByPerson=window.mlPriorityTaskIdsByPerson||{};
+    for(const taskId of window.mlPriorityTaskIdsByPerson[id]||[]){
+      if(window.TASKS?.[taskId]){
+        window.TASKS[taskId].risk=null;
+        window.TASKS[taskId].priorityRank=null;
+        window.TASKS[taskId].priorityScore=null;
+      }
     }
     for(const [taskId,value] of matched){
       window.TASKS[taskId].risk=Number(value.final_priority_score);
       window.TASKS[taskId].priorityScore=Number(value.final_priority_score);
       window.TASKS[taskId].priorityRank=Number(value.final_priority_rank);
     }
+    window.mlPriorityTaskIdsByPerson[id]=matched.map(([taskId])=>taskId);
     if(typeof window.render==='function')window.render();
     return result;
   };

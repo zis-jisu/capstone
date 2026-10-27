@@ -26,6 +26,7 @@
     }
     const workMap = byId(works, 'work_id'), taskMap = byId(tasks, 'task_id');
     const eventMap = byId(events, 'event_id'), msgMap = byId(messages, 'message_id');
+    const msgBySlackTs = new Map(messages.filter(m => m.slack_ts).map(m => [String(m.slack_ts), m]));
     const peopleMap = byId(persons, 'person_id');
     const workLinks = edges.filter(e => e.relation === 'HAS_TASK');
     const eventLinks = edges.filter(e => e.relation === 'HAS_EVENT');
@@ -35,6 +36,14 @@
     const taskToWork = new Map(workLinks.map(e => [e.target_id, e.source_id]));
     const rowsByTask = new Map(tasks.map(t => [t.task_id, eventLinks.filter(e => e.source_id === t.task_id).map(e => eventMap.get(e.target_id)).filter(Boolean).sort((a,b) => Number(a.slack_ts || 0) - Number(b.slack_ts || 0))]));
     const names = ids => [...new Set(ids.map(id => peopleMap.get(id)?.name).filter(Boolean))];
+    const messageForEvent = e => msgMap.get(e.source_id) || msgBySlackTs.get(String(e.slack_ts || ''));
+    const authorForEvent = e => {
+      const message = messageForEvent(e);
+      const personId = e.speaker_id || e.slack_user_id || e.actor_id || message?.author_id;
+      const speaker = String(e.speaker || '').trim();
+      const knownSpeaker = speaker && !/^(작성자\s*)?미확인$/.test(speaker);
+      return (knownSpeaker ? speaker : '') || message?.author_name || peopleMap.get(personId)?.name || e.actor || '작성자 미확인';
+    };
 
     PROJECTS.splice(0, PROJECTS.length, ...works.map(w => ({ id: w.work_id, name: html(w.title), risk:null, tasks: workTasks.get(w.work_id) || [] })));
     Object.keys(TASKS).forEach(key => delete TASKS[key]);
@@ -53,19 +62,19 @@
       const deadline = t.deadline_text || (t.deadline_at ? String(t.deadline_at).slice(0,16).replace('T',' ') : '미정');
       const recent = evs.length ? evs[evs.length - 1].slack_ts : '0';
       TASKS[id] = {
-        name: html(t.title), status: html(statusText(t.status)), risk:null, deadline:html(deadline), updated:Number(recent),
+        name: html(t.title), sourceName:String(t.title || ''), status: html(statusText(t.status)), risk:null, deadline:html(deadline), updated:Number(recent),
         type: ownerIds.length + otherIds.length > 1 ? 'collab':'solo', owner:html(owners[0] || '담당자 미확인'),
         people: collaborators.map(html), next:html(next), after:[], blocker:html(prereqs[0] || '명시된 차단 사유 없음'),
-        caution:html(caution), history:evs.map(e => html(`${e.speaker || '작성자 미확인'} · ${e.action || e.subject || e.evidence}`)),
+        caution:html(caution), history:evs.map(e => html(`${authorForEvent(e)} · ${e.action || e.subject || e.evidence}`)),
         flow:[html(statusText(t.status)), html(next), '완료 확인'], depends:depTitles.map(html), approval:'원문 근거 참조',
       };
       SLACK_EVIDENCE[id] = evs.map(e => {
-        const message = msgMap.get(e.source_id);
+        const message = messageForEvent(e);
         const raw = message?.text || e.evidence || '';
         const [channel, timestamp] = String(e.source_id).split(':');
         return {
           type:e.conversation_type === 'dm' ? 'dm':'channel', source:html(e.conversation_id || channel),
-          time:html(e.slack_ts ? new Date(Number(e.slack_ts)*1000).toLocaleString('ko-KR') : ''), author:html(e.speaker || ''), summary:html(e.action || e.subject || ''),
+          time:html(e.slack_ts ? new Date(Number(e.slack_ts)*1000).toLocaleString('ko-KR') : ''), author:html(authorForEvent(e)), summary:html(e.action || e.subject || ''),
           original:html(raw), channel, timestamp, allowed:!!message && e.conversation_type !== 'dm',
         };
       });
@@ -130,6 +139,16 @@
     if(priorities) priorities.classList.remove('hidden');
     loaded = true;
     render();
+    const priorityPeople = [...new Set(participantLinks
+      .filter(e => e.relation === 'OWNER' && e.source_type === 'Person')
+      .map(e => e.source_id).filter(Boolean))];
+    if(typeof window.refreshMlPriorities === 'function' && priorityPeople.length){
+      Promise.allSettled(priorityPeople.map(personId => window.refreshMlPriorities(personId)))
+        .then(results => {
+          const failures=results.filter(result => result.status === 'rejected');
+          if(failures.length)console.warn('일부 ML 우선순위 조회 실패', failures.map(result => result.reason));
+        });
+    }
     const details = root.getElementById('handover-project-select'); if(details && HANDOVER_WORKS.length) details.value = HANDOVER_WORKS[0].id;
     if (mainView === 'handover' && HANDOVER_WORKS.length) renderMyWork();
     if(typeof renderImportPeople === 'function') renderImportPeople();
