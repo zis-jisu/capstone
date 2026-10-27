@@ -1,6 +1,7 @@
 import copy
 import json
 import unittest
+from unittest.mock import patch
 
 from src.deadlines import normalize_deadline, db_timestamp, message_time
 from src.db import to_db, export_graph, SupabaseStore
@@ -77,6 +78,28 @@ class DeadlineTests(unittest.TestCase):
 
     def test_multiple_clocks_ambiguous(self):
         self.assertIsNone(normalize_deadline({"text": "내일 오전 10시 또는 오후 2시"}, "2026-10-10T05:00:00Z")["at"])
+
+
+class SupabaseStoreTests(unittest.TestCase):
+    def test_mock_suffix_is_applied_only_when_requested(self):
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def read(self): return b'[]'
+
+        urls = []
+
+        def open_request(request, timeout=0):
+            urls.append(request.full_url)
+            return Response()
+
+        with patch("urllib.request.urlopen", side_effect=open_request):
+            SupabaseStore("https://example.supabase.co", "key").request("tasks")
+            SupabaseStore("https://example.supabase.co", "key", table_suffix="_mock").request("tasks")
+        self.assertEqual(urls, [
+            "https://example.supabase.co/rest/v1/tasks",
+            "https://example.supabase.co/rest/v1/tasks_mock",
+        ])
 
 
 class IntegrationTests(unittest.TestCase):

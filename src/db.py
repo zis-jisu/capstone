@@ -23,16 +23,21 @@ ALLOWED = {"HAS_TASK": {("Work", "Task")}, "HAS_EVENT": {("Task", "Event")},
 
 
 class SupabaseStore:
-    def __init__(self, url=None, key=None):
+    def __init__(self, url=None, key=None, table_suffix=""):
         self.url = (url or os.environ.get("SUPABASE_URL", "")).rstrip("/")
         self.key = key or os.environ.get("SUPABASE_KEY", "")
+        if table_suffix not in ("", "_mock"):
+            raise ValueError("Unsupported Supabase table suffix.")
+        self.table_suffix = table_suffix
         if not self.url.startswith("https://") or not self.key:
             raise ValueError("Configure SUPABASE_URL and a backend-only SUPABASE_KEY.")
 
     def request(self, table, *, params=None, method="GET", rows=None):
         if table not in TABLE_KEYS and table != "slack_messages":
             raise ValueError("Unknown pipeline table.")
-        url = self.url + "/rest/v1/" + table
+        # The Slack pipeline keeps the default tables; the UI can read its
+        # isolated mirror by selecting the explicit `_mock` suffix.
+        url = self.url + "/rest/v1/" + table + self.table_suffix
         if params:
             url += "?" + urllib.parse.urlencode(params)
         req = urllib.request.Request(url, method=method,

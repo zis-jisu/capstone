@@ -9,13 +9,18 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from src.db import SupabaseStore
+from src.db import SupabaseStore, export_graph
 from src.slack_login import actor as slack_actor, enabled as slack_login_enabled, begin as slack_begin, callback as slack_callback, logout as slack_logout
-from scripts.export_ml_rpc import fetch_graph
 from src.frontend_api import app
 
 ROOT = Path(__file__).resolve().parents[1]
 SECURITY = HTTPBasic(auto_error=False)
+FRONTEND_DB_SUFFIX = '_mock'
+
+
+def _frontend_store():
+    """Read the UI dataset from the isolated *_mock Supabase tables."""
+    return SupabaseStore(table_suffix=FRONTEND_DB_SUFFIX)
 
 
 def demo_auth(credentials: HTTPBasicCredentials | None = Depends(SECURITY)):
@@ -55,7 +60,7 @@ def demo_my_works(person_id: str = '', _=Depends(demo_auth), identity=Depends(sl
     selected = identity['person_id'] if identity else person_id
     if selected not in members:
         raise HTTPException(422, 'Unknown demo team member')
-    snapshot = SupabaseStore().snapshot()
+    snapshot = _frontend_store().snapshot()
     people = {p['person_id']:p.get('name') or p['person_id'] for p in snapshot['persons']}
     task_rows = {t['task_id']:t for t in snapshot['tasks']}
     event_rows = {e['event_id']:e for e in snapshot['events']}
@@ -113,10 +118,10 @@ def demo_my_works(person_id: str = '', _=Depends(demo_auth), identity=Depends(sl
 
 @app.get('/api/demo/data', include_in_schema=False)
 def demo_data(_=Depends(demo_auth), actor=Depends(slack_actor)):
-    store = SupabaseStore()
+    store = _frontend_store()
     snapshot = store.snapshot()  # persons / events / tasks / works / edges
     messages = store.request('slack_messages', params={'select': '*', 'order': 'slack_ts.asc', 'limit': 200})
-    graph = fetch_graph()  # existing graph-team Supabase RPC with tensor validation
+    graph = export_graph(snapshot)
     if actor:
         # In verified mode, an employee may only retrieve an approved Work.
         # Supervisors and the original handover source can review the source dataset.
@@ -132,8 +137,8 @@ def demo_data(_=Depends(demo_auth), actor=Depends(slack_actor)):
     return {
         **snapshot,
         'slack_messages': messages,
-        'graph': {'metadata': graph['metadata'], 'validation': graph['validation']},
-        'source': 'Supabase (MCP/LLM-processed Slack demo)',
+        'graph': {'metadata': graph['metadata']},
+        'source': 'Supabase mock UI dataset',
     }
 
 def _filter_work_data(snapshot, messages, allowed_work_ids):
@@ -261,7 +266,7 @@ def demo_meta(_=Depends(demo_auth)):
         trained_at = ml_bridge.trained_at(ml_status)
     except HTTPException:
         trained_at = None
-    snapshot = SupabaseStore().snapshot()
+    snapshot = _frontend_store().snapshot()
     event_updates = [e.get('updated_at') for e in snapshot['events'] if e.get('updated_at')]
     return {'model_trained_at': trained_at, 'last_analyzed_at': max(event_updates, default=None),
             'model_training_source': 'ml_api' if trained_at else 'not_connected'}
@@ -280,7 +285,7 @@ def list_assignments(_=Depends(admin_auth)):
 @app.post('/api/admin/assignments',status_code=201)
 def create_assignment(body:AssignmentRequest, _=Depends(admin_auth)):
     # A handover recipient must not be silently promoted to the original OWNER edge.
-    snap=SupabaseStore().snapshot()
+    snap=_frontend_store().snapshot()
     if body.task_id not in {t['task_id'] for t in snap['tasks']}:
         raise HTTPException(404,'Unknown Task')
     if body.assignee_id not in {p['person_id'] for p in snap['persons']}:
@@ -413,7 +418,7 @@ def demo_handover_list(_=Depends(demo_auth), actor=Depends(slack_actor)):
 def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth), actor=Depends(slack_actor)):
     if actor and actor['person_id'] != body.requester_id:
         raise HTTPException(403, 'Cannot request on behalf of another person')
-    snapshot = SupabaseStore().snapshot()
+    snapshot = _frontend_store().snapshot()
     person_ids = {person['person_id'] for person in snapshot['persons']}
     work_ids = {work['work_id'] for work in snapshot['works']}
     if body.requester_id not in person_ids or body.source_person_id not in person_ids:
