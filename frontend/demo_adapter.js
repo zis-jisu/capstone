@@ -180,6 +180,15 @@
     if(typeof renderImportPeople === 'function') renderImportPeople();
   }
 
+  window.linkingSetOwnerTab=owner=>{
+    window.linkingOwnerTab=['all','김지수','박보검'].includes(owner)?owner:'all';
+    window.linkingSelectedFlowTaskId=null;
+    window.linkingSelectedFlowTaskWork=null;
+    window.linkingSelectedWorkId=null;
+    const detail=root.getElementById('briefing-task-section');
+    if(detail)detail.style.display='none';
+    renderPriorityOverview();
+  };
   renderPriorityOverview = function () {
     const area=root.getElementById('priority-overview');if(!area)return;
     const esc=html, round=n=>n==null?'미산정':Math.round(n)+'점';
@@ -187,7 +196,10 @@
     const getScore=t=>t.priorityScore!=null&&Number.isFinite(Number(t.priorityScore))?Number(t.priorityScore):null;
     const status=t=>t.status==='완료'?'done':t.status==='진행 중'?'active':t.status==='대기'?'waiting':'other';
     const dependencies=window.linkingWorkDependencies||[];
-    const items=PROJECTS.map(work=>{
+    const ownerTab=window.linkingOwnerTab||'all';
+    const grantedSources=window.linkingApprovedWorkSources||{};
+    const sourceWorks=PROJECTS.filter(work=>ownerTab==='all'||(grantedSources[work.id]||[]).includes(ownerTab));
+    const items=sourceWorks.map(work=>{
       const tasks=work.tasks.map(id=>({id,task:TASKS[id]})).filter(x=>x.task);
       const pending=tasks.filter(x=>status(x.task)!=='done');
       const ranked=pending.filter(x=>getRank(x.task)!=null).sort((a,b)=>getRank(a.task)-getRank(b.task));
@@ -303,6 +315,22 @@
       const select=root.getElementById('project-select');if(select)select.value=id;
       render();root.getElementById('task-detail')?.scrollIntoView({behavior:'smooth',block:'start'});
     };
+    const tabButtons=root.querySelectorAll('[data-owner-tab]');
+    tabButtons.forEach(button=>{
+      const active=button.dataset.ownerTab===ownerTab;
+      button.setAttribute('aria-selected',String(active));
+      button.classList.toggle('bg-white',active);
+      button.classList.toggle('bg-[#F2F7FF]',!active);
+      button.classList.toggle('text-[#1B64DA]',active);
+      button.classList.toggle('border-[#93B8FF]',active);
+    });
+    if(window.linkingSelectedWorkId&&!items.some(x=>x.work.id===window.linkingSelectedWorkId)){
+      window.linkingSelectedWorkId=null;
+      window.linkingSelectedFlowTaskId=null;
+      window.linkingSelectedFlowTaskWork=null;
+      const detail=root.getElementById('briefing-task-section');
+      if(detail)detail.style.display='none';
+    }
     area.innerHTML='<div class="flex items-center justify-between gap-3"><h2 class="text-[17px] font-bold">업무 진행 흐름</h2><span class="text-[11px] text-[#8B95A1]">Work 선택 · Task 클릭 시 상세 표시</span></div>'+ 
       '<div class="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4"><div class="lg:col-span-2 space-y-2">'+items.map((item,i)=>
       '<div data-work-priority="'+i+'" onmouseenter="linkingShowPriorityTasks('+i+')" onfocusin="linkingShowPriorityTasks('+i+')" class="rounded-xl border border-[#E5E8EB] bg-white hover:border-[#3182F6]"><button type="button" onclick="linkingChooseWork('+i+')" class="w-full p-3 text-left" aria-label="'+esc(item.work.name)+' 흐름 보기"><div class="flex items-start justify-between gap-2"><div class="min-w-0 text-[13px] leading-5 font-bold">'+(i+1)+'. '+esc(item.work.name)+'</div><span class="shrink-0 text-[11px] font-semibold text-[#3182F6]">'+(item.rank!=null?item.rank+'위 · ':'')+round(item.score)+'</span></div><div class="mt-3 flex items-center gap-3"><div class="h-1.5 flex-1 rounded-full bg-[#E8EBF0] overflow-hidden"><div class="h-full rounded-full bg-[#438763]" style="width:'+pct(item)+'%"></div></div><span class="text-[11px] shrink-0 text-[#6B7684]">완료 '+item.done+'/'+item.tasks.length+'</span></div></button></div>').join('')+
@@ -311,6 +339,8 @@
       const requested=window.linkingSelectedWorkId||(state.project!=='all'?state.project:null);
       const position=items.findIndex(item=>item.work.id===requested);
       window.linkingShowPriorityTasks(position>=0?position:0);
+    }else{
+      area.innerHTML='<div class="rounded-xl bg-[#F8F9FA] px-6 py-14 text-center"><div class="text-[16px] font-bold text-[#333D4B]">'+html(ownerTab==='all'?'인수받은 업무가 없습니다.':ownerTab+'님에게 인수받은 업무가 없습니다.')+'</div><p class="mt-2 text-[12px] text-[#8B95A1]">승인된 인수인계 Work가 없습니다.</p></div>';
     }
   };
 
