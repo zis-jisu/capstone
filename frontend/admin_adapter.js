@@ -42,7 +42,7 @@
         notice.className='rounded-2xl border border-[#D9E9FF] bg-[#F2F7FF] p-4 text-[12px] leading-5 text-[#315BE8]';
         view.prepend(notice);
       }
-      notice.textContent='팀장 시연 화면 · 관리자 인증 후 Slack 수집 및 업무 배정을 사용할 수 있습니다.';
+      notice.textContent='팀장 시연 화면 · Slack 연동하기로 Supabase 데이터를 불러오고 ML 학습을 시작할 수 있습니다. 업무 배정은 관리자 인증이 필요합니다.';
       let authButton=$('admin-auth-button');
       if(!authButton){
         authButton=document.createElement('button');authButton.id='admin-auth-button';authButton.type='button';
@@ -52,7 +52,7 @@
       }
       authButton.textContent='관리자 인증하기';
     }
-    for(const id of ['admin-sync-button','admin-assign-button']){
+    for(const id of ['admin-assign-button']){
       const button=$(id);if(button){button.disabled=true;button.title='서버 관리자 인증 설정이 필요합니다';button.classList.add('opacity-50','cursor-not-allowed');}
     }
     try{
@@ -95,12 +95,33 @@
     $('admin-assignment-list').innerHTML = rows.length ? rows.map(x=>`<div class="rounded-xl border border-[#EEF0F3] px-4 py-3 flex flex-wrap justify-between gap-3"><span><b>${escapeHtml(taskId(x.task_id))}</b> → ${escapeHtml(personId(x.assignee_id))}</span><span class="text-[#8B95A1]">${escapeHtml(displayTime(x.assigned_at))} · ${escapeHtml(x.status)}</span></div>`).join('') : '<div class="text-[#8B95A1]">배정 내역이 없습니다.</div>';
   }
   window.runAdminSync = async () => {
-    const button=$('admin-sync-button'); button.disabled=true; $('admin-sync-result').textContent='Slack MCP 메시지 수집 중…';
+    const button=$('admin-sync-button'),output=$('admin-sync-result');
+    button.disabled=true;output.textContent='Supabase 업무 데이터 확인 중…';
     try {
-      const r=await request('/api/admin/slack-collect',{method:'POST',body:JSON.stringify({person_id:$('admin-sync-person').value,days:Number($('admin-sync-days').value)})});
-      $('admin-sync-result').textContent=`수집 성공 · 메시지 ${r.messages}건 / 작성자 ${r.people}명 / 채널 ${r.channels.length}개 / 경고 ${r.warnings}건 · DB 저장 및 LLM 재분석은 미실행`;
-    } catch(err){ $('admin-sync-result').textContent=err.message; }
-    finally {button.disabled=false;}
+      const db=await request('/api/demo/data');
+      output.textContent=`Supabase 조회 완료 · Work ${db.works?.length||0}건 / Task ${db.tasks?.length||0}건 · ML 학습 시작…`;
+      const response=await fetch('/api/demo/slack-link',{method:'POST',credentials:'same-origin'});
+      if(!response.ok)throw new Error('학습 시작 실패 (HTTP '+response.status+')');
+      if(!response.body)throw new Error('학습 진행 응답이 없습니다');
+      const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',completed=false;
+      while(true){
+        const next=await reader.read();if(next.done)break;
+        buffer+=decoder.decode(next.value,{stream:true});
+        const lines=buffer.split('\n');buffer=lines.pop()||'';
+        for(const line of lines){
+          if(!line.trim())continue;
+          const event=JSON.parse(line);
+          if(event.status==='failed')throw new Error(event.error||'ML 학습 실패');
+          if(event.status==='completed')completed=true;
+          if(event.status==='running')output.textContent=`ML 모델 학습 중 · ${event.progress_percent||0}%`;
+        }
+      }
+      if(buffer.trim()){const last=JSON.parse(buffer);if(last.status==='completed')completed=true;if(last.status==='failed')throw Error(last.error||'학습 실패');}
+      if(!completed)throw new Error('학습 완료 응답을 받지 못했습니다');
+      output.textContent='Supabase 연동 및 ML 모델 학습 완료';
+      if(window.refreshMlTrainingStatus)await window.refreshMlTrainingStatus();
+    }catch(err){output.textContent='연동 실패 · '+err.message;}
+    finally{button.disabled=false;}
   };
   window.createAdminAssignment = async () => {
     const button=$('admin-assign-button'); button.disabled=true; $('admin-assign-result').textContent='업무 배정 저장 중…';
@@ -557,7 +578,7 @@
   if(typeof originalSync==='function')window.runAdminSync=async(...args)=>{
     await originalSync(...args);
     const result=document.getElementById('admin-sync-result');
-    if(result?.textContent?.startsWith('수집 성공')){
+    if(false && result?.textContent?.startsWith('수집 성공')){
       try{await window.startMlTraining();result.textContent+=' · ML 학습 완료 (DB의 최신 그래프 기준)';}
       catch(e){result.textContent+=' · ML 학습 요청 실패: '+e.message;}
     }
