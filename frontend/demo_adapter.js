@@ -139,16 +139,6 @@
     if(priorities) priorities.classList.remove('hidden');
     loaded = true;
     render();
-    const priorityPeople = [...new Set(participantLinks
-      .filter(e => e.relation === 'OWNER' && e.source_type === 'Person')
-      .map(e => e.source_id).filter(Boolean))];
-    if(typeof window.refreshMlPriorities === 'function' && priorityPeople.length){
-      Promise.allSettled(priorityPeople.map(personId => window.refreshMlPriorities(personId)))
-        .then(results => {
-          const failures=results.filter(result => result.status === 'rejected');
-          if(failures.length)console.warn('일부 ML 우선순위 조회 실패', failures.map(result => result.reason));
-        });
-    }
     const details = root.getElementById('handover-project-select'); if(details && HANDOVER_WORKS.length) details.value = HANDOVER_WORKS[0].id;
     if (mainView === 'handover' && HANDOVER_WORKS.length) renderMyWork();
     if(typeof renderImportPeople === 'function') renderImportPeople();

@@ -264,7 +264,19 @@
    try{request=(await load()).find(r=>r.id===id&&r.status==='pending');}
    catch(e){return message(e.message)}
    if(!actorId||!request||request.sourceId!==actorId)return message('처리 권한이 없습니다.');
-   try{await api('/'+encodeURIComponent(id)+'/decision','POST',{actor_id:actorId,status});await inbox();if(status==='approved'&&window.refreshMlPriorities)window.refreshMlPriorities(request.requesterId).catch(e=>message('우선순위 산출 실패: '+e.message));message(status==='approved'?'DB 승인 완료. 인수자 계정에서 업무를 확인하세요.':'DB에 반려 상태를 저장했습니다.');}
+   try{
+    await api('/'+encodeURIComponent(id)+'/decision','POST',{actor_id:actorId,status});
+    await inbox();
+    if(status==='approved'){
+     try{
+      if(typeof window.refreshMlPriorities!=='function')throw new Error('우선순위 API 연결을 찾을 수 없습니다');
+      await window.refreshMlPriorities(request.requesterId);
+      message('DB 승인 완료 · 인수자의 ML 우선순위를 반영했습니다.');
+     }catch(priorityError){
+      message('DB 승인은 완료됐지만 우선순위 산출에 실패했습니다: '+priorityError.message);
+     }
+    }else message('DB에 반려 상태를 저장했습니다.');
+   }
    catch(e){message(e.message)}
   }
   function switchActor(next){
