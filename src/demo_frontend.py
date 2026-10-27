@@ -69,10 +69,19 @@ def _merge_rows(base, overlay, key):
     return list(merged.values())
 
 
+def _merge_person_profiles(people, original_people):
+    """Enrich matching IDs with canonical contact fields; do not invent people."""
+    profiles = {person['person_id']: person for person in original_people}
+    return [dict(person, **{key: profiles[person['person_id']][key]
+                            for key in ('team', 'email', 'phone_number')
+                            if key in profiles.get(person['person_id'], {})}) for person in people]
+
+
 def _overlay_original_work(mock_snapshot, original):
     mock, removed_event_ids = _without_work(mock_snapshot, ORIGINAL_FRONTEND_WORK_ID)
     scoped, _ = _filter_work_data(original, [], {ORIGINAL_FRONTEND_WORK_ID})
-    mock['persons'] = _merge_rows(mock['persons'], scoped['persons'], 'person_id')
+    mock['persons'] = _merge_person_profiles(
+        _merge_rows(mock['persons'], scoped['persons'], 'person_id'), original['persons'])
     mock['works'] = _merge_rows(mock['works'], scoped['works'], 'work_id')
     mock['tasks'] = _merge_rows(mock['tasks'], scoped['tasks'], 'task_id')
     mock['events'] = _merge_rows(mock['events'], scoped['events'], 'event_id')

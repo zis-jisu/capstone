@@ -65,6 +65,10 @@
       const collaboratorIds = participantLinks.filter(e => e.target_id === id && e.relation === 'COLLABORATOR').map(e => e.source_id);
       const otherIds = participantLinks.filter(e => e.target_id === id && e.relation !== 'OWNER').map(e => e.source_id);
       const owners = names(ownerIds), collaborators = names(otherIds);
+      const eventIds=new Set(evs.map(e=>e.event_id));
+      const contactIds=new Set(edges.filter(e=>e.source_type==='Person'&&(e.target_id===id||eventIds.has(e.target_id))).map(e=>e.source_id));
+      for(const e of evs)for(const key of ['speaker_id','slack_user_id','actor_id','recipient_id'])if(e[key])contactIds.add(e[key]);
+      const contacts=[...contactIds].map(personId=>peopleMap.get(personId)).filter(Boolean).sort((a,b)=>String(a.name).localeCompare(String(b.name),'ko'));
       const next = t.next_action || (t.status === 'completed' ? '완료된 업무입니다.' : '다음 할 일 확인 필요');
       const prereqs = [...new Set(evs.map(e => e.prerequisite).filter(Boolean))];
       const depTitles = deps.filter(e => e.source_id === id).map(e => taskMap.get(e.target_id)?.title).filter(Boolean);
@@ -74,7 +78,7 @@
       TASKS[id] = {
         name: html(t.title), sourceName:String(t.title || ''), status: html(statusText(t.status)), risk:null, deadline:html(deadline), updated:Number(recent),
         type: ownerIds.length > 1 || collaboratorIds.length > 0 ? 'collab':'solo', owner:html(owners[0] || '담당자 미확인'),
-        people: collaborators.map(html), next:html(next), after:[], blocker:html(prereqs[0] || '명시된 차단 사유 없음'),
+        contacts, people: collaborators.map(html), next:html(next), after:[], blocker:html(prereqs[0] || '명시된 차단 사유 없음'),
         caution:html(caution), history:evs.map(e => html(`${authorForEvent(e)} · ${e.action || e.subject || e.evidence}`)),
         flow:[html(statusText(t.status)), html(next), '완료 확인'], depends:depTitles.map(html), approval:'원문 근거 참조',
       };
@@ -117,7 +121,7 @@
         const from=xy[0]<375?[xy[0]+90,xy[1]]:xy[0]>375?[xy[0]-90,xy[1]]:[375,xy[1]-27];
         const to=xy[0]<375?[285,230]:xy[0]>375?[465,230]:[375,257];
         svg += line(from[0],from[1],to[0],to[1],e.relation);
-        svg += node(xy[0],xy[1],p.name,e.relation,'person');
+        svg += node(xy[0],xy[1],p.name,p.team||'부서 미등록','person');
       }
       if(dependencies.length){
         const dep = taskMap.get(dependencies[0].target_id);

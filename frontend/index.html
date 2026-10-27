@@ -610,10 +610,10 @@ function renderPeopleGraph(t){
   svg+=line(460,180,570,180,'인수인계','primary');
   shown.forEach((r,i)=>{const xs=[260,380,500][i]; const cls=r.source==='R&R'?'rr':''; svg+=line(xs,92,380,145,r.label,cls);});
   if(successor)svg+=line(380,215,380,280,'후속','');
-  svg+=node(110,180,150,64,graphOwner,[ownerMeta.team,ownerMeta.title].filter(Boolean).join(' · ')||'기존 담당자');
+  svg+=node(110,180,150,64,graphOwner,ownerMeta.team||'부서 미등록');
   svg+=node(380,180,170,70,t.name,'선택한 세부 업무','task');
-  svg+=node(650,180,150,64,receiver,[meMeta.team,meMeta.title].filter(Boolean).join(' · ')||'인수자','me');
-  shown.forEach((r,i)=>{const xs=[260,380,500][i]; const m=personMeta(r.name); svg+=node(xs,60,145,56,r.name,[m.team,m.title].filter(Boolean).join(' · ')||r.label);});
+  svg+=node(650,180,150,64,receiver,meMeta.team||'부서 미등록','me');
+  shown.forEach((r,i)=>{const xs=[260,380,500][i]; const m=personMeta(r.name); svg+=node(xs,60,145,56,r.name,m.team||'부서 미등록');});
   if(successor)svg+=node(380,310,170,56,successor,'후속 업무','task');
   svg+='</svg>';
   const sync=[]; if(orgState.orgLoaded)sync.push('조직도'); if(orgState.rrLoaded)sync.push('R&R');
@@ -636,6 +636,17 @@ function flowDisplaySteps(t){
  }
  return steps;
 }
+function renderRelatedContacts(t){
+ const contacts=Array.isArray(t.contacts)?t.contacts:[];
+ if(!contacts.length)return '<div class="rounded-2xl bg-[#F8F9FA] p-6 text-center text-[13px] text-[#8B95A1]">이 업무에 등록된 관련자가 없습니다.</div>';
+ return '<div class="space-y-3">'+contacts.map(person=>{
+  const email=String(person.email||'').trim(),phone=String(person.phone_number||'').trim();
+  const phoneTarget=phone.replace(/[^+0-9*#,;]/g,'');
+  const emailValue=email?'<a class="break-all text-[#3182F6] hover:underline" href="mailto:'+encodeURIComponent(email)+'">'+escSvg(email)+'</a>':'미등록';
+  const phoneValue=phone?'<a class="text-[#3182F6] hover:underline" href="tel:'+encodeURIComponent(phoneTarget)+'">'+escSvg(phone)+'</a>':'미등록';
+  return '<section class="rounded-2xl border border-[#E5E8EB] bg-white p-4"><div class="flex flex-wrap items-center gap-2"><h4 class="text-[14px] font-bold">'+escSvg(person.name||'이름 미등록')+'</h4><span class="rounded-lg bg-[#F2F4F6] px-2 py-1 text-[11px] text-[#6B7684]">'+escSvg(person.team||'부서 미등록')+'</span></div><dl class="mt-3 grid gap-3 sm:grid-cols-2 text-[12px]"><div><dt class="mb-1 text-[#8B95A1]">전화번호</dt><dd>'+phoneValue+'</dd></div><div><dt class="mb-1 text-[#8B95A1]">이메일</dt><dd>'+emailValue+'</dd></div></dl></section>';
+ }).join('')+'</div>';
+}
 function renderDetail(){
  const t=currentTask();
  const el=document.getElementById('task-detail');
@@ -647,7 +658,8 @@ function renderDetail(){
  const tabs=[
    {id:'timeline',label:'진행 타임라인',icon:'timeline'},
    {id:'files',label:'관련 자료',icon:'folder_open'},
-   {id:'people',label:'업무 관계',icon:'hub'}
+   {id:'people',label:'업무 관계',icon:'hub'},
+   {id:'contacts',label:'관련자 연락처',icon:'contact_phone'}
  ];
  const tabContent={
    timeline:`<div class="detail-panel-scroll pr-1">${renderTimeline(t)}</div>`,
@@ -658,7 +670,8 @@ function renderDetail(){
        <div class="text-[11px] text-[#8B95A1]">선택한 세부 업무와 직접 연결된 관계만 보여줘요.</div>
        <button onclick="openNetwork()" class="h-9 px-3.5 shrink-0 rounded-xl border border-[#D9E9FF] bg-[#F2F7FF] text-[#1B64DA] text-[11px] font-bold">전체 조직도</button>
      </div>
-   </div>`
+   </div>`,
+   contacts:`<div class="detail-panel-scroll pr-1">${renderRelatedContacts(t)}</div>`
  };
  el.innerHTML=`<div class="bg-white rounded-[22px] border border-[#EEF0F3] overflow-hidden shadow-[0_1px_2px_rgba(0,0,0,.02)]">
    <div class="p-6 border-b border-[#F2F4F6]">
@@ -1252,7 +1265,7 @@ setMainView=function(view){if(senderEditing){toast('수정을 저장하거나 �
 
 render();
 </script>
-<script src="/demo_adapter.js?v=20261027-handover-selection"></script>
-<script src="/admin_adapter.js?v=20261027-handover-selection"></script>
+<script src="/demo_adapter.js?v=20261027-contacts-department"></script>
+<script src="/admin_adapter.js?v=20261027-contacts-department"></script>
 </body>
 </html>
