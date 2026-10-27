@@ -42,7 +42,7 @@
         notice.className='rounded-2xl border border-[#D9E9FF] bg-[#F2F7FF] p-4 text-[12px] leading-5 text-[#315BE8]';
         view.prepend(notice);
       }
-      notice.textContent='팀장 시연 화면 · Slack 연동하기로 Supabase 데이터를 불러오고 ML 학습을 시작할 수 있습니다. 업무 배정은 관리자 인증이 필요합니다.';
+      notice.textContent='팀장 시연 화면 · Slack 연동과 인수인계 업무 배정은 독립적으로 실행됩니다. 업무 배정은 관리자 인증이 필요합니다.';
       let authButton=$('admin-auth-button');
       if(!authButton){
         authButton=document.createElement('button');authButton.id='admin-auth-button';authButton.type='button';
@@ -75,7 +75,7 @@
       for(const id of ['admin-sync-button','admin-assign-button']){
         const button=$(id);if(button){button.disabled=false;button.title='';button.classList.remove('opacity-50','cursor-not-allowed');}
       }
-      const notice=$('manager-demo-notice');if(notice)notice.textContent='관리자 인증 완료 · Slack 수집 및 업무 배정을 사용할 수 있습니다.';
+      const notice=$('manager-demo-notice');if(notice)notice.textContent='관리자 인증 완료 · Slack 연동 및 인수인계 업무 배정을 사용할 수 있습니다.';
       await loadDirectory(); await loadAssignments();
     } catch(err) { token=null;setAdmin(false);toast(err.message); }
   };
@@ -83,10 +83,8 @@
     const data=await request('/api/demo/data');
     directory={persons:data.persons||[],tasks:data.tasks||[]};
     const persons=directory.persons.map(p=>`<option value="${escapeHtml(p.person_id)}">${escapeHtml(p.name)}</option>`).join('');
-    $('admin-sync-person').innerHTML=persons;
-    $('admin-assignee').innerHTML=persons;
+    $('admin-assignee').innerHTML='<option value="">인수자를 선택하세요</option>'+persons;
     $('admin-task').innerHTML=directory.tasks.map(t=>`<option value="${escapeHtml(t.task_id)}">${escapeHtml(t.title)}</option>`).join('');
-    if(directory.persons.some(p=>p.person_id==='U0C22C8M742'))$('admin-sync-person').value='U0C22C8M742';
   }
   async function loadAssignments(){
     const rows=(await request('/api/admin/assignments')).assignments||[];
@@ -130,9 +128,12 @@
   window.createAdminAssignment = async () => {
     const button=$('admin-assign-button'); button.disabled=true; $('admin-assign-result').textContent='업무 배정 저장 중…';
     try {
-      await request('/api/admin/assignments',{method:'POST',body:JSON.stringify({task_id:$('admin-task').value,assignee_id:$('admin-assignee').value})});
+      const assigneeId=$('admin-assignee').value;
+      if(!assigneeId)throw new Error('인수자를 선택하세요.');
+      const result=await request('/api/admin/assignments',{method:'POST',body:JSON.stringify({task_id:$('admin-task').value,assignee_id:assigneeId})});
       $('admin-assign-result').textContent='배정 저장 완료 · 원본 Task 담당자와 그래프는 그대로 유지됩니다.';
       await loadAssignments();
+      return result;
     } catch(err){$('admin-assign-result').textContent=err.message;}
     finally {button.disabled=false;}
   };
@@ -668,9 +669,15 @@
   const originalAssignment=window.createAdminAssignment;
   if(typeof originalAssignment==='function')window.createAdminAssignment=async(...args)=>{
     const assigneeId=document.getElementById('admin-assignee')?.value;
-    await originalAssignment(...args);
+    const assignment=await originalAssignment(...args);
     if(document.getElementById('admin-assign-result')?.textContent?.startsWith('배정 저장 완료')){
-      try{await window.refreshMlPriorities(assigneeId);}
+      try{
+        if(assignment?.priority_error)throw new Error(assignment.priority_error);
+        const priority=assignment?.priorities
+          ? window.applyMlPriorityResult(assigneeId,assignment.priorities)
+          : await window.refreshMlPriorities(assigneeId);
+        document.getElementById('admin-assign-result').textContent+=` · 선택 인수자 ML 우선순위 ${priority.matchedTaskIds.length}건 반영`;
+      }
       catch(e){document.getElementById('admin-assign-result').textContent+=' · 우선순위 산출 실패: '+e.message;}
     }
   };

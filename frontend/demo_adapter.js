@@ -4,8 +4,8 @@
   let loaded = false;
   const root = document;
   const html = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  const statuses = { completed:'완료', in_progress:'진행 중', waiting:'대기', delayed:'지연', blocked:'차단', pending:'대기' };
-  const statusText = s => statuses[s] || s || '미확인';
+  const statuses = { completed:'완료', in_progress:'진행 중', waiting:'대기', planned:'대기', delayed:'지연', blocked:'차단', pending:'대기' };
+  const statusText = s => statuses[String(s || '').trim().toLowerCase()] || s || '미확인';
   const byId = (arr, key) => new Map(arr.map(x => [x[key], x]));
 
   function attach(data) {
@@ -30,6 +30,9 @@
     const peopleMap = byId(persons, 'person_id');
     const workLinks = edges.filter(e => e.relation === 'HAS_TASK');
     const eventLinks = edges.filter(e => e.relation === 'HAS_EVENT');
+    const actorByEvent = new Map(edges
+      .filter(e => e.relation === 'ACTOR' && e.source_type === 'Person' && e.target_type === 'Event')
+      .map(e => [e.target_id, e.source_id]));
     const participantLinks = edges.filter(e => ['OWNER','COLLABORATOR','REVIEWER','APPROVER','RELATED'].includes(e.relation) && e.target_type === 'Task');
     const deps = edges.filter(e => e.relation === 'DEPENDS_ON' && e.source_type === 'Task' && e.target_type === 'Task');
     const workTasks = new Map(works.map(w => [w.work_id, workLinks.filter(e => e.source_id === w.work_id).map(e => e.target_id).filter(id => taskMap.has(id))]));
@@ -39,10 +42,15 @@
     const messageForEvent = e => msgMap.get(e.source_id) || msgBySlackTs.get(String(e.slack_ts || ''));
     const authorForEvent = e => {
       const message = messageForEvent(e);
-      const personId = e.speaker_id || e.slack_user_id || e.actor_id || message?.author_id;
+      const raw=message?.raw_json&&typeof message.raw_json==='object'?message.raw_json:{};
+      const personId = e.speaker_id || e.slack_user_id || e.actor_id || message?.author_id || actorByEvent.get(e.event_id);
       const speaker = String(e.speaker || '').trim();
       const knownSpeaker = speaker && !/^(작성자\s*)?미확인$/.test(speaker);
-      return (knownSpeaker ? speaker : '') || message?.author_name || peopleMap.get(personId)?.name || e.actor || '작성자 미확인';
+      const messageAuthor=String(message?.author_name||raw.author_name||raw.user_name||raw.user?.real_name||'').trim();
+      const knownMessageAuthor=messageAuthor&&!/^(작성자\s*)?미확인$/.test(messageAuthor);
+      const actor=String(e.actor||'').trim();
+      const knownActor=actor&&!/^(작성자\s*)?미확인$/.test(actor);
+      return (knownSpeaker?speaker:'')||(knownMessageAuthor?messageAuthor:'')||peopleMap.get(personId)?.name||(knownActor?actor:'')||'작성자 미확인';
     };
 
     PROJECTS.splice(0, PROJECTS.length, ...works.map(w => ({ id: w.work_id, name: html(w.title), risk:null, tasks: workTasks.get(w.work_id) || [] })));
@@ -53,6 +61,7 @@
     for (const t of tasks) {
       const id = t.task_id, evs = rowsByTask.get(id) || [];
       const ownerIds = participantLinks.filter(e => e.target_id === id && e.relation === 'OWNER').map(e => e.source_id);
+      const collaboratorIds = participantLinks.filter(e => e.target_id === id && e.relation === 'COLLABORATOR').map(e => e.source_id);
       const otherIds = participantLinks.filter(e => e.target_id === id && e.relation !== 'OWNER').map(e => e.source_id);
       const owners = names(ownerIds), collaborators = names(otherIds);
       const next = t.next_action || (t.status === 'completed' ? '완료된 업무입니다.' : '다음 할 일 확인 필요');
@@ -63,7 +72,7 @@
       const recent = evs.length ? evs[evs.length - 1].slack_ts : '0';
       TASKS[id] = {
         name: html(t.title), sourceName:String(t.title || ''), status: html(statusText(t.status)), risk:null, deadline:html(deadline), updated:Number(recent),
-        type: ownerIds.length + otherIds.length > 1 ? 'collab':'solo', owner:html(owners[0] || '담당자 미확인'),
+        type: ownerIds.length > 1 || collaboratorIds.length > 0 ? 'collab':'solo', owner:html(owners[0] || '담당자 미확인'),
         people: collaborators.map(html), next:html(next), after:[], blocker:html(prereqs[0] || '명시된 차단 사유 없음'),
         caution:html(caution), history:evs.map(e => html(`${authorForEvent(e)} · ${e.action || e.subject || e.evidence}`)),
         flow:[html(statusText(t.status)), html(next), '완료 확인'], depends:depTitles.map(html), approval:'원문 근거 참조',

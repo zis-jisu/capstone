@@ -176,13 +176,11 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
          <div id="manage-view" class="hidden space-y-5">
        <section class="bg-white rounded-[22px] border border-[#EEF0F3] p-6">
          <h2 class="text-[22px] font-bold">관리하기</h2>
-         <p class="mt-1 text-[12px] text-[#8B95A1]">팀장이 Slack 연동하기를 누르면 Supabase 업무 데이터를 불러오고 ML 학습을 시작합니다.</p>
+         <p class="mt-1 text-[12px] text-[#8B95A1]">Slack 연동과 인수인계 배정은 서로 독립적으로 동작합니다.</p>
          <div class="mt-5 grid lg:grid-cols-2 gap-4">
            <div class="rounded-[20px] border border-[#EEF0F3] p-5 space-y-3">
              <h3 class="font-bold text-[16px]">Slack 연동</h3>
-             <p class="text-[12px] text-[#6B7684]">Supabase에 저장된 Event · Task · Work를 불러온 후 ML 모델 학습을 시작합니다.</p>
-             <label class="block text-[12px] font-bold">수집 대상<select id="admin-sync-person" class="mt-2 w-full rounded-xl border border-[#DDE3EA] px-3 h-11 bg-white text-[13px]"></select></label>
-             <label class="block text-[12px] font-bold">수집 기간<select id="admin-sync-days" class="mt-2 w-full rounded-xl border border-[#DDE3EA] px-3 h-11 bg-white text-[13px]"><option value="7">최근 7일</option><option value="14" selected>최근 14일</option><option value="30">최근 30일</option></select></label>
+             <p class="text-[12px] text-[#6B7684]">Slack 연결을 확인하고 기존 Supabase 그래프로 ML 모델 학습을 시작합니다.</p>
              <button id="admin-sync-button" onclick="runAdminSync()" class="h-11 rounded-xl bg-[#191F28] px-4 text-white text-[13px] font-bold">Slack 연동하기</button>
              <div id="admin-sync-result" class="text-[12px] text-[#6B7684]" aria-live="polite">연동 대기</div>
            </div>
@@ -190,7 +188,7 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
              <h3 class="font-bold text-[16px]">팀원 업무 배정</h3>
              <p class="text-[12px] text-[#6B7684]">배정 이력을 별도 저장합니다. 분석된 원본 담당자와 그래프는 유지돼요.</p>
              <label class="block text-[12px] font-bold">배정할 Task<select id="admin-task" class="mt-2 w-full rounded-xl border border-[#DDE3EA] px-3 h-11 bg-white text-[13px]"></select></label>
-             <label class="block text-[12px] font-bold">인수자<select id="admin-assignee" class="mt-2 w-full rounded-xl border border-[#DDE3EA] px-3 h-11 bg-white text-[13px]"></select></label>
+             <label class="block text-[12px] font-bold">인수자<select id="admin-assignee" class="mt-2 w-full rounded-xl border border-[#DDE3EA] px-3 h-11 bg-white text-[13px]"><option value="">인수자를 선택하세요</option></select></label>
              <button id="admin-assign-button" onclick="createAdminAssignment()" class="h-11 rounded-xl bg-[#3182F6] px-4 text-white text-[13px] font-bold">업무 배정 저장</button>
              <div id="admin-assign-result" class="text-[12px] text-[#6B7684]" aria-live="polite">배정 대기</div>
            </div>

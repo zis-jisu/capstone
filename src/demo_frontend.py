@@ -120,7 +120,16 @@ def demo_my_works(person_id: str = '', _=Depends(demo_auth), identity=Depends(sl
 def demo_data(_=Depends(demo_auth), actor=Depends(slack_actor)):
     store = _frontend_store()
     snapshot = store.snapshot()  # persons / events / tasks / works / edges
-    messages = store.request('slack_messages', params={'select': '*', 'order': 'slack_ts.asc', 'limit': 200})
+    messages = []
+    offset = 0
+    while True:
+        batch = store.request('slack_messages', params={
+            'select': '*', 'order': 'slack_ts.asc', 'limit': 500, 'offset': offset,
+        })
+        messages.extend(batch)
+        if len(batch) < 500:
+            break
+        offset += len(batch)
     graph = export_graph(snapshot)
     if actor:
         # In verified mode, an employee may only retrieve an approved Work.
@@ -294,7 +303,18 @@ def create_assignment(body:AssignmentRequest, _=Depends(admin_auth)):
     if actor not in {p['person_id'] for p in snap['persons']}:
         raise HTTPException(503,'Configure ADMIN_ACTOR_ID as a valid person ID')
     rows=_db_assignments(method='POST',rows=[{'task_id':body.task_id,'assignee_id':body.assignee_id,'assigned_by':actor}])
-    return {'assignment':rows[0]}
+    priority_result = None
+    priority_error = None
+    try:
+        # Manager assignment calculates priorities for the selected recipient,
+        # never for a fixed demo person.
+        priority_result = ml_bridge.priorities(body.assignee_id)
+    except HTTPException as exc:
+        priority_error = str(exc.detail)
+    except Exception:
+        priority_error = 'ML priority response could not be processed'
+    return {'assignment':rows[0], 'priorities':priority_result,
+            'priority_error':priority_error}
 
 
 async def _collect_via_mcp(person_id, days):
