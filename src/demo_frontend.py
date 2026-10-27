@@ -16,11 +16,76 @@ from src.frontend_api import app
 ROOT = Path(__file__).resolve().parents[1]
 SECURITY = HTTPBasic(auto_error=False)
 FRONTEND_DB_SUFFIX = '_mock'
+ORIGINAL_FRONTEND_WORK_ID = 'WORK-00020'
 
 
 def _frontend_store():
     """Read the UI dataset from the isolated *_mock Supabase tables."""
     return SupabaseStore(table_suffix=FRONTEND_DB_SUFFIX)
+
+
+def _all_messages(store):
+    rows, offset = [], 0
+    while True:
+        batch = store.request('slack_messages', params={
+            'select': '*', 'order': 'slack_ts.asc', 'limit': 500, 'offset': offset,
+        })
+        rows.extend(batch)
+        if len(batch) < 500:
+            return rows
+        offset += len(batch)
+
+
+def _without_work(snapshot, work_id):
+    """Remove one Work subgraph while preserving unrelated mock Persons."""
+    edges = snapshot['edges']
+    task_ids = {edge['target_id'] for edge in edges
+                if edge.get('source_type') == 'Work'
+                and edge.get('source_id') == work_id
+                and edge.get('target_type') == 'Task'
+                and edge.get('relation') == 'HAS_TASK'}
+    event_ids = {edge['target_id'] for edge in edges
+                 if edge.get('source_type') == 'Task'
+                 and edge.get('source_id') in task_ids
+                 and edge.get('target_type') == 'Event'
+                 and edge.get('relation') == 'HAS_EVENT'}
+    node_ids = {work_id} | task_ids | event_ids
+    return {
+        'persons': list(snapshot['persons']),
+        'works': [row for row in snapshot['works'] if row.get('work_id') != work_id],
+        'tasks': [row for row in snapshot['tasks'] if row.get('task_id') not in task_ids],
+        'events': [row for row in snapshot['events'] if row.get('event_id') not in event_ids],
+        'edges': [edge for edge in edges
+                  if edge.get('source_id') not in node_ids
+                  and edge.get('target_id') not in node_ids],
+    }, event_ids
+
+
+def _merge_rows(base, overlay, key):
+    merged = {row[key]: row for row in base}
+    merged.update({row[key]: row for row in overlay})
+    return list(merged.values())
+
+
+def _overlay_original_work(mock_snapshot, original):
+    mock, removed_event_ids = _without_work(mock_snapshot, ORIGINAL_FRONTEND_WORK_ID)
+    scoped, _ = _filter_work_data(original, [], {ORIGINAL_FRONTEND_WORK_ID})
+    mock['persons'] = _merge_rows(mock['persons'], scoped['persons'], 'person_id')
+    mock['works'] = _merge_rows(mock['works'], scoped['works'], 'work_id')
+    mock['tasks'] = _merge_rows(mock['tasks'], scoped['tasks'], 'task_id')
+    mock['events'] = _merge_rows(mock['events'], scoped['events'], 'event_id')
+    edge_key = lambda row: (row.get('source_id'), row.get('relation'), row.get('target_id'))
+    edges = {edge_key(row): row for row in mock['edges']}
+    edges.update({edge_key(row): row for row in scoped['edges']})
+    mock['edges'] = list(edges.values())
+    return mock, removed_event_ids, scoped
+
+
+def _hybrid_frontend_snapshot():
+    """Use *_mock by default, but source WORK-00020 from original tables."""
+    snapshot, _, _ = _overlay_original_work(
+        _frontend_store().snapshot(), SupabaseStore().snapshot())
+    return snapshot
 
 
 def demo_auth(credentials: HTTPBasicCredentials | None = Depends(SECURITY)):
@@ -60,7 +125,7 @@ def demo_my_works(person_id: str = '', _=Depends(demo_auth), identity=Depends(sl
     selected = identity['person_id'] if identity else person_id
     if selected not in members:
         raise HTTPException(422, 'Unknown demo team member')
-    snapshot = _frontend_store().snapshot()
+    snapshot = _hybrid_frontend_snapshot()
     people = {p['person_id']:p.get('name') or p['person_id'] for p in snapshot['persons']}
     task_rows = {t['task_id']:t for t in snapshot['tasks']}
     event_rows = {e['event_id']:e for e in snapshot['events']}
@@ -118,18 +183,19 @@ def demo_my_works(person_id: str = '', _=Depends(demo_auth), identity=Depends(sl
 
 @app.get('/api/demo/data', include_in_schema=False)
 def demo_data(_=Depends(demo_auth), actor=Depends(slack_actor)):
-    store = _frontend_store()
-    snapshot = store.snapshot()  # persons / events / tasks / works / edges
-    messages = []
-    offset = 0
-    while True:
-        batch = store.request('slack_messages', params={
-            'select': '*', 'order': 'slack_ts.asc', 'limit': 500, 'offset': offset,
-        })
-        messages.extend(batch)
-        if len(batch) < 500:
-            break
-        offset += len(batch)
+    mock_store = _frontend_store()
+    original_store = SupabaseStore()
+    raw_mock = mock_store.snapshot()
+    snapshot, removed_mock_event_ids, original_work = _overlay_original_work(
+        raw_mock, original_store.snapshot())
+    removed_mock_source_ids = {event.get('source_id') for event in raw_mock['events']
+                               if event.get('event_id') in removed_mock_event_ids}
+    original_source_ids = {event.get('source_id') for event in original_work['events']}
+    mock_messages = [row for row in _all_messages(mock_store)
+                     if row.get('message_id') not in removed_mock_source_ids]
+    original_messages = [row for row in _all_messages(original_store)
+                         if row.get('message_id') in original_source_ids]
+    messages = _merge_rows(mock_messages, original_messages, 'message_id')
     graph = export_graph(snapshot)
     if actor:
         # In verified mode, an employee may only retrieve an approved Work.
@@ -147,7 +213,11 @@ def demo_data(_=Depends(demo_auth), actor=Depends(slack_actor)):
         **snapshot,
         'slack_messages': messages,
         'graph': {'metadata': graph['metadata']},
-        'source': 'Supabase mock UI dataset',
+        'source': 'Supabase mock UI dataset + original WORK-00020',
+        'data_sources': {
+            'default': '*_mock',
+            ORIGINAL_FRONTEND_WORK_ID: 'original',
+        },
     }
 
 def _filter_work_data(snapshot, messages, allowed_work_ids):
@@ -300,7 +370,7 @@ def list_assignments(_=Depends(admin_auth)):
 @app.post('/api/admin/assignments',status_code=201)
 def create_assignment(body:AssignmentRequest, _=Depends(admin_auth)):
     # A handover recipient must not be silently promoted to the original OWNER edge.
-    snap=_frontend_store().snapshot()
+    snap=_hybrid_frontend_snapshot()
     tasks = {t['task_id']:t for t in snap['tasks']}
     works = {w['work_id']:w for w in snap['works']}
     if not body.work_id and not body.task_id:
@@ -479,7 +549,7 @@ def demo_handover_list(_=Depends(demo_auth), actor=Depends(slack_actor)):
 def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth), actor=Depends(slack_actor)):
     if actor and actor['person_id'] != body.requester_id:
         raise HTTPException(403, 'Cannot request on behalf of another person')
-    snapshot = _frontend_store().snapshot()
+    snapshot = _hybrid_frontend_snapshot()
     person_ids = {person['person_id'] for person in snapshot['persons']}
     work_ids = {work['work_id'] for work in snapshot['works']}
     if body.requester_id not in person_ids or body.source_person_id not in person_ids:
