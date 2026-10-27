@@ -144,8 +144,12 @@
       const summary=root.getElementById('briefing-project-summary');
       const collabCount=root.getElementById('briefing-collab-count');
       const soloCount=root.getElementById('briefing-solo-count');
-      if(heading)heading.textContent=`김지수님에게서 세부 업무 ${values.length}건을 인수받았어요`;
-      if(summary)summary.textContent=`${PROJECTS.length}개 프로젝트 · ML 우선순위 연동 ${ranked}건`;
+      if(heading)heading.textContent=`${PROJECTS.length}건의 Work를 이어받았어요`;
+      if(summary)summary.textContent=`현재 담당하는 Work의 업무 현황 · ML 우선순위 연동 ${ranked}건`;
+      const ongoing=values.filter(task=>task.status==='진행 중').length;
+      const waiting=values.filter(task=>['대기','차단','지연'].includes(task.status)).length;
+      const stats=root.getElementById('received-work-stats');
+      if(stats)stats.innerHTML=[['이어받은 Work',PROJECTS.length],['진행 중 Task',ongoing],['대기 Task',waiting]].map(([label,count])=>`<div class="rounded-[24px] bg-[#F7F8FA] px-6 py-6 min-h-[140px]"><div class="text-[14px] text-[#6B7684]">${label}</div><div class="mt-6 text-[32px] leading-none font-bold text-[#191F28]">${count}<span class="ml-2 text-[14px] font-normal text-[#8B95A1]">건</span></div></div>`).join('');
       if(collabCount)collabCount.textContent=`협업 업무 ${collab}`;
       if(soloCount)soloCount.textContent=`개인 업무 ${values.length-collab}`;
     };
@@ -173,21 +177,25 @@
   }
 
   renderPriorityOverview = function () {
-    const el = root.getElementById('priority-overview'); if(!el) return;
-    const ids=Object.keys(TASKS).filter(id=>TASKS[id]?.status!=='완료');
-    const ranked=id=>TASKS[id].priorityRank!=null&&Number(TASKS[id].priorityRank)>0;
-    const rankedCount=ids.filter(ranked).length;
-    const ordered=[...ids].sort((a,b)=>{
-      const byStatus=taskStatusRank(TASKS[a]?.status)-taskStatusRank(TASKS[b]?.status);
-      if(byStatus)return byStatus;
-      if(ranked(a)!==ranked(b))return ranked(a)?-1:1;
-      if(ranked(a)&&ranked(b))return Number(TASKS[a].priorityRank)-Number(TASKS[b].priorityRank);
-      return Number(TASKS[b].updated||0)-Number(TASKS[a].updated||0);
+    const el=root.getElementById('priority-overview');if(!el)return;
+    const items=PROJECTS.map(work=>{
+      const tasks=work.tasks.map(id=>({id,task:TASKS[id]})).filter(row=>row.task);
+      const active=tasks.filter(row=>row.task.status!=='완료');
+      const scored=active.filter(row=>Number.isFinite(Number(row.task.priorityScore))&&row.task.priorityScore!=null);
+      const ranked=active.filter(row=>Number.isFinite(Number(row.task.priorityRank))&&Number(row.task.priorityRank)>0);
+      const best=ranked.length?[...ranked].sort((a,b)=>Number(a.task.priorityRank)-Number(b.task.priorityRank))[0]:[...scored].sort((a,b)=>Number(b.task.priorityScore)-Number(a.task.priorityScore))[0];
+      return {work,tasks,active,best,rank:best?.task.priorityRank!=null?Number(best.task.priorityRank):null,score:best?.task.priorityScore!=null?Number(best.task.priorityScore):null};
+    }).sort((a,b)=>{
+      if(!!a.best!==!!b.best)return a.best?-1:1;
+      if(a.rank!=null&&b.rank!=null&&a.rank!==b.rank)return a.rank-b.rank;
+      if(a.rank!=null!== (b.rank!=null))return a.rank!=null?-1:1;
+      return (b.score??-Infinity)-(a.score??-Infinity);
     });
-    const subtitle=rankedCount
-      ?`ML 우선순위 ${rankedCount}건 연동 · 미산정 ${ids.length-rankedCount}건`
-      :'승인 완료 후 승인자의 ML 우선순위가 여기에 반영돼요.';
-    el.innerHTML = `<div class="flex justify-between items-center gap-2"><div><h2 class="text-[16px] font-bold">현재 업무 ${ids.length}건</h2><p class="mt-1 text-[11px] text-[#8B95A1]">${subtitle}</p></div><button onclick="showAllTasks()" class="text-[12px] font-bold text-[#3182F6]">${ids.length}건 전체 보기 →</button></div><div class="mt-4 grid sm:grid-cols-2 xl:grid-cols-5 gap-2">${ordered.slice(0,5).map(id=>{const t=TASKS[id],project=projectForTask(id);return `<button onclick="openPriorityTask('${id}')" class="text-left rounded-2xl border border-[#EEF0F3] bg-white p-3"><div class="flex flex-wrap items-center justify-between gap-2"><span class="text-[11px] text-[#8B95A1]">${t.status}</span><span class="px-2 py-1 rounded-full text-[10px] font-bold ${riskBadge(t.risk)}">우선순위 ${priorityLabel(t)}</span></div><div class="mt-2 text-[10px] text-[#8B95A1]">${project?.name||'프로젝트 미확인'} · ${id}</div><div class="mt-1 text-[13px] font-bold">${t.name}</div><div class="mt-2 text-[10px] text-[#6B7684]">${t.deadline}</div></button>`}).join('')}</div>`;
+    const scored=items.filter(item=>item.best).length;
+    const round=value=>value==null||!Number.isFinite(value)?'미산정':String(Math.round(value));
+    const openWork=id=>{state.project=id;state.filter=null;state.task=PROJECTS.find(w=>w.id===id)?.tasks.find(taskId=>TASKS[taskId]?.status!=='완료')||PROJECTS.find(w=>w.id===id)?.tasks[0]||null;render();root.getElementById('task-detail')?.scrollIntoView({behavior:'smooth',block:'start'});};
+    window.openPriorityWork=openWork;
+    el.innerHTML=`<div class="flex flex-wrap items-center justify-between gap-3"><div><h2 class="text-[17px] font-bold">Work 우선순위</h2><p class="mt-1 text-[12px] text-[#8B95A1]">우선순위가 높은 Work부터 표시 · Work 위에 마우스를 올리면 Task 확인</p></div><span class="text-[12px] text-[#6B7684]">우선순위 산정 ${scored}/${items.length} Work</span></div><div class="mt-5 space-y-3">${items.map(({work,tasks,active,best,rank,score},i)=>`<div class="group relative rounded-2xl border border-[#E5E8EB] bg-[#FAFBFC] hover:border-[#BFD4FF] focus-within:border-[#BFD4FF]"><button type="button" onclick="openPriorityWork('${html(work.id)}')" aria-label="${html(work.name)} 상세 보기" class="w-full text-left flex flex-wrap sm:flex-nowrap items-center gap-3 rounded-2xl p-4"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white font-bold text-[#3182F6]">${i+1}</span><div class="min-w-0 flex-1"><div class="font-bold text-[14px]">${html(work.name)}</div><div class="mt-1 text-[11px] text-[#8B95A1]">진행 대상 Task ${active.length}건 · 전체 ${tasks.length}건</div></div><span class="shrink-0 rounded-full bg-[#EAF2FF] px-3 py-1.5 text-[11px] font-bold text-[#1B64DA]">우선순위 ${rank!=null&&rank>0?rank+'위 · ':''}${round(score)}점</span><span class="material-symbols-outlined text-[18px] text-[#8B95A1]">chevron_right</span></button><div class="hidden group-hover:block group-focus-within:block sm:absolute sm:left-[40%] sm:right-3 sm:top-[calc(100%-6px)] z-20 rounded-2xl bg-white border border-[#DDE3EA] p-4 shadow-xl"><p class="text-[12px] font-bold mb-3">포함된 Task</p><div class="space-y-2 max-h-64 overflow-y-auto">${tasks.map(({id,task})=>`<button type="button" onclick="openPriorityTask('${html(id)}')" class="w-full text-left flex items-start justify-between gap-3 rounded-xl p-2 hover:bg-[#F2F7FF]"><span class="min-w-0 text-[12px]">${html(task.name)}<span class="block mt-1 text-[10px] text-[#8B95A1]">${html(task.status)}</span></span><span class="text-[11px] shrink-0 font-bold text-[#3182F6]">${task.priorityRank!=null&&Number(task.priorityRank)>0?Number(task.priorityRank)+'위 · ':''}${round(task.priorityScore==null?null:Number(task.priorityScore))}점</span></button>`).join('')||'<span class="text-[12px] text-[#8B95A1]">등록된 Task가 없습니다.</span>'}</div></div></div>`).join('')||'<p class="text-[13px] text-[#8B95A1]">이어받은 Work가 없습니다.</p>'}</div>`;
   };
 
   // Open the original channel message, not a fabricated example.
