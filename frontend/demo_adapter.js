@@ -124,14 +124,15 @@
       svg += '</svg>';
       return `<div class="relationship-graph-wrap overflow-x-auto">${svg}</div><div class="mt-2 text-[10px] text-[#8B95A1]">Supabase edges의 담당자·검수자·협업자·선행 Task 관계만 표시합니다.</div>`;
     };
+    const openTaskIds=new Set(tasks.filter(t=>String(t.status||'').toLowerCase()!=='completed').map(t=>t.task_id));
     const selector = root.getElementById('project-select');
-    selector.innerHTML = `<option value="all">전체 업무 · 세부 업무 ${tasks.length}건</option>` + works.map(w => `<option value="${html(w.work_id)}">${html(w.title)} · ${workTasks.get(w.work_id).length}건</option>`).join('');
+    selector.innerHTML = `<option value="all">전체 업무 · 미완료 세부 업무 ${openTaskIds.size}건</option>` + works.map(w => `<option value="${html(w.work_id)}">${html(w.title)} · ${workTasks.get(w.work_id).filter(id=>openTaskIds.has(id)).length}건</option>`).join('');
     const selfSelector = root.getElementById('handover-project-select');
     selfSelector.innerHTML = HANDOVER_WORKS.map(w => `<option value="${html(w.id)}">${html(w.name)}</option>`).join('');
     window.updateBriefingSummary = function(){
-      const values=Object.values(TASKS);
+      const values=Object.values(TASKS).filter(task=>task.status!=='완료');
       const collab=values.filter(task=>task.type==='collab').length;
-      const ranked=values.filter(task=>Number(task.priorityRank)>0&&Number.isFinite(Number(task.priorityScore))).length;
+      const ranked=values.filter(task=>task.priorityRank!=null&&Number(task.priorityRank)>0).length;
       const heading=root.getElementById('briefing-task-summary');
       const summary=root.getElementById('briefing-project-summary');
       const collabCount=root.getElementById('briefing-collab-count');
@@ -144,7 +145,7 @@
     const kicker = root.getElementById('header-kicker');
     if (kicker) kicker.textContent = 'Slack MCP · LLM · Supabase 연동 시연';
     graphStorageMessage = `Supabase 그래프 · ${data.graph?.metadata?.num_nodes ?? '?'} 노드 · ${data.graph?.metadata?.num_edges ?? '?'} 관계`;
-    state.project = 'all'; state.task = tasks[0].task_id; state.filter = null;
+    state.project = 'all'; state.task = tasks.find(t=>String(t.status||'').toLowerCase()!=='completed')?.task_id||null; state.filter = null;
     state.detailTab = 'timeline';
     const pLabel = root.getElementById('project-label'); if (pLabel) pLabel.textContent = works[0].title;
     const hLabel = root.getElementById('handover-sync-time'); if(hLabel) hLabel.textContent = 'Supabase 최신 조회 · 데모';
@@ -166,8 +167,8 @@
 
   renderPriorityOverview = function () {
     const el = root.getElementById('priority-overview'); if(!el) return;
-    const ids=Object.keys(TASKS);
-    const ranked=id=>Number(TASKS[id].priorityRank)>0&&Number.isFinite(Number(TASKS[id].priorityScore));
+    const ids=Object.keys(TASKS).filter(id=>TASKS[id]?.status!=='완료');
+    const ranked=id=>TASKS[id].priorityRank!=null&&Number(TASKS[id].priorityRank)>0;
     const rankedCount=ids.filter(ranked).length;
     const ordered=[...ids].sort((a,b)=>{
       if(ranked(a)!==ranked(b))return ranked(a)?-1:1;

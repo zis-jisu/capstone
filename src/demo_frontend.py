@@ -208,7 +208,9 @@ def admin_auth(
 
 
 class AssignmentRequest(BaseModel):
-    task_id: str = Field(min_length=1, max_length=90)
+    work_id: str | None = Field(default=None, min_length=1, max_length=90)
+    task_id: str | None = Field(default=None, min_length=1, max_length=90)
+    source_person_id: str | None = Field(default=None, min_length=1, max_length=50)
     assignee_id: str = Field(min_length=1, max_length=50)
 
 
@@ -295,14 +297,48 @@ def list_assignments(_=Depends(admin_auth)):
 def create_assignment(body:AssignmentRequest, _=Depends(admin_auth)):
     # A handover recipient must not be silently promoted to the original OWNER edge.
     snap=_frontend_store().snapshot()
-    if body.task_id not in {t['task_id'] for t in snap['tasks']}:
-        raise HTTPException(404,'Unknown Task')
+    tasks = {t['task_id']:t for t in snap['tasks']}
+    works = {w['work_id']:w for w in snap['works']}
+    if not body.work_id and not body.task_id:
+        raise HTTPException(422,'work_id is required')
     if body.assignee_id not in {p['person_id'] for p in snap['persons']}:
         raise HTTPException(404,'Unknown person')
+    if body.source_person_id and body.source_person_id not in {p['person_id'] for p in snap['persons']}:
+        raise HTTPException(404,'Unknown source person')
+    if body.source_person_id == body.assignee_id:
+        raise HTTPException(422,'Source person and recipient must be different')
+    if body.work_id:
+        if body.work_id not in works:
+            raise HTTPException(404,'Unknown Work')
+        work_task_ids = {e['target_id'] for e in snap['edges']
+                         if e.get('source_type') == 'Work'
+                         and e.get('source_id') == body.work_id
+                         and e.get('target_type') == 'Task'
+                         and e.get('relation') == 'HAS_TASK'}
+        task_ids = [task_id for task_id in work_task_ids
+                    if task_id in tasks
+                    and str(tasks[task_id].get('status','')).lower() != 'completed']
+        if body.source_person_id:
+            owned = {e['target_id'] for e in snap['edges']
+                     if e.get('source_type') == 'Person'
+                     and e.get('source_id') == body.source_person_id
+                     and e.get('target_type') == 'Task'
+                     and e.get('relation') == 'OWNER'}
+            if not owned.intersection(work_task_ids):
+                raise HTTPException(422,'Selected person is not an owner of this Work')
+    else:
+        if body.task_id not in tasks:
+            raise HTTPException(404,'Unknown Task')
+        task_ids = [body.task_id]
+    if not task_ids:
+        raise HTTPException(409,'This Work has no unfinished Tasks')
     actor=os.getenv('ADMIN_ACTOR_ID','')
     if actor not in {p['person_id'] for p in snap['persons']}:
         raise HTTPException(503,'Configure ADMIN_ACTOR_ID as a valid person ID')
-    rows=_db_assignments(method='POST',rows=[{'task_id':body.task_id,'assignee_id':body.assignee_id,'assigned_by':actor}])
+    rows=_db_assignments(method='POST',rows=[
+        {'task_id':task_id,'assignee_id':body.assignee_id,'assigned_by':actor}
+        for task_id in sorted(task_ids)
+    ])
     priority_result = None
     priority_error = None
     try:
@@ -313,7 +349,8 @@ def create_assignment(body:AssignmentRequest, _=Depends(admin_auth)):
         priority_error = str(exc.detail)
     except Exception:
         priority_error = 'ML priority response could not be processed'
-    return {'assignment':rows[0], 'priorities':priority_result,
+    return {'assignment':rows[0], 'assignments':rows, 'work_id':body.work_id,
+            'task_ids':sorted(task_ids), 'priorities':priority_result,
             'priority_error':priority_error}
 
 

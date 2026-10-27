@@ -3,7 +3,7 @@
   'use strict';
   renderAssignments = () => {}; // Legacy demo management list is replaced by the DB-backed list.
   let token = null; // never store the admin secret in localStorage or HTML
-  let directory = {persons:[], tasks:[]};
+  let directory = {persons:[], tasks:[], works:[], edges:[]};
   const $ = id => document.getElementById(id);
   const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const displayTime = value => value ? new Date(value).toLocaleString('ko-KR') : '미연동';
@@ -81,23 +81,47 @@
   };
   async function loadDirectory(){
     const data=await request('/api/demo/data');
-    directory={persons:data.persons||[],tasks:data.tasks||[]};
-    const persons=directory.persons.map(p=>`<option value="${escapeHtml(p.person_id)}">${escapeHtml(p.name)}</option>`).join('');
-    $('admin-assignee').innerHTML='<option value="">인수자를 선택하세요</option>'+persons;
-    $('admin-task').innerHTML=directory.tasks.map(t=>`<option value="${escapeHtml(t.task_id)}">${escapeHtml(t.title)}</option>`).join('');
+    directory={persons:data.persons||[],tasks:data.tasks||[],works:data.works||[],edges:data.edges||[]};
+    const personLabel=p=>`${p.team||p.team_name||p.department||p.department_name||'팀 미확인'} / ${p.employee_id||p.employee_no||p.staff_id||p.person_id} / ${p.name||'이름 미확인'}`;
+    $('admin-person-options').innerHTML=directory.persons.map(p=>`<option value="${escapeHtml(personLabel(p))}"></option>`).join('');
+    const resolvePerson=input=>{
+      const value=String(input.value||'').trim();
+      const person=directory.persons.find(p=>value===personLabel(p)||value===p.person_id||value===p.name);
+      input.dataset.personId=person?.person_id||'';
+      return person?.person_id||'';
+    };
+    const renderWorks=()=>{
+      const sourceId=resolvePerson($('admin-source-person'));
+      const owned=new Set(directory.edges.filter(e=>e.source_type==='Person'&&e.source_id===sourceId&&e.target_type==='Task'&&e.relation==='OWNER').map(e=>e.target_id));
+      const open=new Set(directory.tasks.filter(t=>String(t.status||'').toLowerCase()!=='completed').map(t=>t.task_id));
+      const workIds=new Set(directory.edges.filter(e=>e.source_type==='Work'&&e.target_type==='Task'&&e.relation==='HAS_TASK'&&owned.has(e.target_id)&&open.has(e.target_id)).map(e=>e.source_id));
+      const works=directory.works.filter(w=>workIds.has(w.work_id));
+      $('admin-work').innerHTML=sourceId
+        ? '<option value="">배정할 Work를 선택하세요</option>'+works.map(w=>`<option value="${escapeHtml(w.work_id)}">${escapeHtml(w.title||w.work_id)}</option>`).join('')
+        : '<option value="">인계자를 먼저 선택하세요</option>';
+      if(sourceId&&!works.length)$('admin-work').innerHTML='<option value="">미완료 Work가 없습니다</option>';
+    };
+    for(const id of ['admin-source-person','admin-assignee']){
+      const input=$(id);
+      input.oninput=()=>{resolvePerson(input);if(id==='admin-source-person')renderWorks();};
+      input.onchange=()=>{resolvePerson(input);if(id==='admin-source-person')renderWorks();};
+    }
+    renderWorks();
   }
   async function loadAssignments(){
     const rows=(await request('/api/admin/assignments')).assignments||[];
     const personId=id=>directory.persons.find(x=>x.person_id===id)?.name||id;
     const taskId=id=>directory.tasks.find(x=>x.task_id===id)?.title||id;
-    $('admin-assignment-list').innerHTML = rows.length ? rows.map(x=>`<div class="rounded-xl border border-[#EEF0F3] px-4 py-3 flex flex-wrap justify-between gap-3"><span><b>${escapeHtml(taskId(x.task_id))}</b> → ${escapeHtml(personId(x.assignee_id))}</span><span class="text-[#8B95A1]">${escapeHtml(displayTime(x.assigned_at))} · ${escapeHtml(x.status)}</span></div>`).join('') : '<div class="text-[#8B95A1]">배정 내역이 없습니다.</div>';
+    const workForTask=id=>{const link=directory.edges.find(e=>e.source_type==='Work'&&e.target_type==='Task'&&e.relation==='HAS_TASK'&&e.target_id===id);return directory.works.find(w=>w.work_id===link?.source_id)?.title||'Work 미확인';};
+    $('admin-assignment-list').innerHTML = rows.length ? rows.map(x=>`<div class="rounded-xl border border-[#EEF0F3] px-4 py-3 flex flex-wrap justify-between gap-3"><span><b>${escapeHtml(workForTask(x.task_id))}</b><span class="block mt-1 text-[11px] text-[#8B95A1]">${escapeHtml(taskId(x.task_id))}</span> → ${escapeHtml(personId(x.assignee_id))}</span><span class="text-[#8B95A1]">${escapeHtml(displayTime(x.assigned_at))} · ${escapeHtml(x.status)}</span></div>`).join('') : '<div class="text-[#8B95A1]">배정 내역이 없습니다.</div>';
   }
   window.runAdminSync = async () => {
     const button=$('admin-sync-button'),output=$('admin-sync-result');
-    button.disabled=true;output.textContent='Supabase 업무 데이터 확인 중…';
+    const days=Number($('admin-sync-days')?.value||14);
+    button.disabled=true;output.textContent=`최근 ${days}일 기준 · Supabase 업무 데이터 확인 중…`;
     try {
       const db=await request('/api/demo/data');
-      output.textContent=`Supabase 조회 완료 · Work ${db.works?.length||0}건 / Task ${db.tasks?.length||0}건 · ML 학습 시작…`;
+      output.textContent=`최근 ${days}일 · Supabase 조회 완료 · Work ${db.works?.length||0}건 / Task ${db.tasks?.length||0}건 · ML 학습 시작…`;
       const response=await fetch('/api/demo/slack-link',{method:'POST',credentials:'same-origin'});
       if(!response.ok){
         let detail='';
@@ -128,10 +152,15 @@
   window.createAdminAssignment = async () => {
     const button=$('admin-assign-button'); button.disabled=true; $('admin-assign-result').textContent='업무 배정 저장 중…';
     try {
-      const assigneeId=$('admin-assignee').value;
+      const sourcePersonId=$('admin-source-person').dataset.personId||'';
+      const assigneeId=$('admin-assignee').dataset.personId||'';
+      const workId=$('admin-work').value;
+      if(!sourcePersonId)throw new Error('인계자를 검색 결과에서 선택하세요.');
       if(!assigneeId)throw new Error('인수자를 선택하세요.');
-      const result=await request('/api/admin/assignments',{method:'POST',body:JSON.stringify({task_id:$('admin-task').value,assignee_id:assigneeId})});
-      $('admin-assign-result').textContent='배정 저장 완료 · 원본 Task 담당자와 그래프는 그대로 유지됩니다.';
+      if(sourcePersonId===assigneeId)throw new Error('인계자와 인수자는 달라야 합니다.');
+      if(!workId)throw new Error('배정할 Work를 선택하세요.');
+      const result=await request('/api/admin/assignments',{method:'POST',body:JSON.stringify({work_id:workId,source_person_id:sourcePersonId,assignee_id:assigneeId})});
+      $('admin-assign-result').textContent=`배정 저장 완료 · 미완료 세부 업무 ${result.task_ids?.length||0}건을 인수자에게 배정했습니다.`;
       await loadAssignments();
       return result;
     } catch(err){$('admin-assign-result').textContent=err.message;}
@@ -173,6 +202,20 @@
   title:WORK_TITLE,status:(!verifiedMode&&r.status==='pending'&&managerApprovals()[r.request_id])||r.status,approvedBy:(!verifiedMode&&r.status==='pending'&&managerApprovals()[r.request_id])?'팀장 (UI 시연)':Object.keys(PERSON_IDS).find(name=>PERSON_IDS[name]===r.approved_by)||r.approved_by||'-',
   requesterId:r.requester_id,sourceId:r.source_person_id
  }));}
+ async function updateInboxBadge(){
+  const badge=el('handover-inbox-count');if(!badge)return;
+  try{
+   const rows=await load();
+   const personId=PERSON_IDS[actor];
+   const count=rows.filter(r=>r.status==='pending'&&(
+    actor==='팀장' ? !verifiedMode :
+    actor==='김지수' ? r.sourceId===personId : r.requesterId===personId
+   )).length;
+   badge.textContent=count>9?'9+':String(count);
+   badge.classList.toggle('hidden',!count);
+   badge.classList.toggle('flex',!!count);
+  }catch(_error){badge.classList.add('hidden');badge.classList.remove('flex');}
+ }
   function panel(title,body){
   let node=el('handover-demo-panel');
   if(!node){node=document.createElement('div');node.id='handover-demo-panel';node.className='fixed inset-0 z-[110] hidden items-center justify-center bg-black/40 p-4';document.body.appendChild(node);}
@@ -245,6 +288,7 @@
   let all;try{all=(await load()).filter(r=>actor==='팀장'?!verifiedMode:r.sourceId===PERSON_IDS[actor]);}
   catch(e){return message(e.message)}
   const pending=all.filter(r=>r.status==='pending');
+  updateInboxBadge();
   let body=pending.length?pending.map(r=>'<div class="mb-3 rounded-2xl border p-4"><div class="font-bold">'+safe(r.requester)+' → '+safe(r.owner)+'</div><div class="mt-2 text-[13px]">'+safe(r.title)+'</div><div class="mt-3 flex gap-2"><button data-verify="'+safe(r.id)+'" class="rounded-xl bg-[#3182F6] px-4 py-2 text-[12px] font-bold text-white">유비키 인증</button><button data-reject="'+safe(r.id)+'" class="rounded-xl border px-4 py-2 text-[12px]">반려</button></div></div>').join(''):'<div class="rounded-xl bg-[#F8F9FA] p-5 text-[13px]">대기 중인 인수인계 요청이 없습니다.</div>';
   const done=all.filter(r=>r.status!=='pending');
   if(done.length)body+='<h3 class="mt-5 mb-2 font-bold">처리 이력</h3>'+done.map(r=>'<div class="flex items-center justify-between gap-3 border-b py-3 text-[12px]"><span>'+safe(r.requester)+' → '+safe(r.owner)+' · '+safe(r.approvedBy)+'</span>'+approvalBadge(r.status)+'</div>').join('');
@@ -266,6 +310,7 @@
     catch(e){return message(e.message)}
     if(!request)return message('처리할 인수인계 요청을 찾을 수 없습니다.');
     saveManagerApproval(id,status);
+    updateInboxBadge();
     await inbox();
     if(status==='approved'){
      try{
@@ -286,6 +331,7 @@
    if(!actorId||!request||request.sourceId!==actorId)return message('처리 권한이 없습니다.');
    try{
     const decision=await api('/'+encodeURIComponent(id)+'/decision','POST',{actor_id:actorId,status});
+    updateInboxBadge();
     await inbox();
     if(status==='approved'){
      try{
@@ -305,6 +351,7 @@
   function switchActor(next){
   if(!ACCOUNT.includes(next))return;
   actor=next;closePanel();if(typeof closeImport==='function')closeImport();
+  updateInboxBadge();
   const loginChoice=el('handover-login-account');if(loginChoice)loginChoice.value=actor;
 
   if(typeof setMainView==='function')setMainView('briefing');
@@ -338,6 +385,7 @@
   const btn=el('import-action-btn');if(btn)btn.disabled=true;
   try{
    await api('','POST',{requester_id:PERSON_IDS['원이정'],source_person_id:PERSON_IDS['김지수'],work_id:WORK_ID});
+   updateInboxBadge();
    importState.step=2;importState.approved=false;renderImportFlow();
    showGate('pending');
    message('Supabase에 인수인계 요청을 저장했습니다. 김지수 UI에서 승인하세요.');
@@ -354,51 +402,9 @@
  const sub=document.querySelector('#import-modal p');
  if(sub)sub.textContent='같은 팀 구성원의 Work를 선택해 인수인계를 요청합니다. 승인 전에는 업무가 전달되지 않습니다.';
  seed();
- // Render a single completed-task accordion even if adapter initialization runs twice.
- // Only direct task buttons may enter the accordion (never an existing <details>).
- if(!window.__linkingCompletedTaskFoldInstalled){
-  window.__linkingCompletedTaskFoldInstalled=true;
-  const baseRenderTaskList=renderTaskList;
-  renderTaskList=function(){
-   baseRenderTaskList();
-   const holder=el('task-list');
-   if(!holder)return;
-   const ids=filteredProjectTasks();
-   const completedIds=ids.filter(id=>TASKS[id]?.status==='완료');
-   // Older wrapping layers can introduce nested accordions: flatten to the actual cards.
-   const allCards=[...holder.querySelectorAll('button[onclick^="selectTask("]')];
-   const cards=new Map();
-   for(const id of ids){
-    const card=allCards.find(b=>b.getAttribute('onclick')==="selectTask('"+id+"')");
-    if(card)cards.set(id,card);
-   }
-   // Replace (not append) the list with exactly one accordion and the remaining cards.
-   holder.replaceChildren();
-   if(completedIds.length){
-    const section=document.createElement('details');
-    section.id='completed-tasks-accordion';
-    section.className='rounded-[22px] border border-[#E5E8EB] bg-[#F8F9FA] px-4 py-3';
-    const label=document.createElement('summary');
-    label.className='cursor-pointer text-[13px] font-bold text-[#6B7684]';
-    label.textContent='완료된 업무 '+completedIds.length+'건 · 펼쳐보기';
-    section.appendChild(label);
-    const inner=document.createElement('div');
-    inner.className='mt-3 space-y-3';
-    for(const id of completedIds){if(cards.has(id))inner.appendChild(cards.get(id));}
-    section.appendChild(inner);
-    holder.appendChild(section);
-   }
-   for(const id of ids){
-    if(!completedIds.includes(id)&&cards.has(id))holder.appendChild(cards.get(id));
-   }
-   if(!ids.length){
-    const empty=document.createElement('div');
-    empty.className='rounded-2xl bg-[#F8F9FA] p-5 text-[13px] text-[#8B95A1]';
-    empty.textContent='현재 필터에 해당하는 업무가 없습니다.';
-    holder.appendChild(empty);
-   }
-  };
- }
+ updateInboxBadge();
+ window.setInterval(updateInboxBadge,15000);
+ // Completed Tasks are intentionally excluded from the operational detail list.
  const loginSelect=el('handover-login-account');
  if(loginSelect){
   loginSelect.addEventListener('change',()=>{
@@ -559,10 +565,19 @@
   };
   const writePriorityStore=store=>localStorage.setItem(PRIORITY_STORAGE_KEY,JSON.stringify(store));
   const priorityRows=result=>{
-    const source=result?.rankings??result?.priorities??result?.task_priorities??result?.ranked_tasks??result?.tasks??result?.data?.rankings??result?.data?.priorities??result;
-    if(Array.isArray(source))return source.map((value,index)=>[value?.task_id||value?.id||String(index),value]);
-    if(source&&typeof source==='object')return Object.entries(source);
-    return [];
+    const rows=[];
+    const visit=(value,key='',depth=0)=>{
+      if(value==null||depth>6)return;
+      if(Array.isArray(value)){value.forEach((item,index)=>visit(item,item?.task_id||item?.id||String(index),depth+1));return;}
+      if(typeof value==='number'&&key){rows.push([key,{score:value}]);return;}
+      if(typeof value!=='object')return;
+      const hasTask=value.task_id||value.taskId||value.id||value.task_name||value.task?.task_id||value.task?.title;
+      const hasPriority=['final_priority_score','priority_score','score','priority','final_priority_rank','priority_rank','rank','ranking'].some(field=>value[field]!=null);
+      if(hasPriority&&(hasTask||key)){rows.push([value.task_id||value.taskId||value.id||value.task?.task_id||key,value]);return;}
+      Object.entries(value).forEach(([childKey,child])=>visit(child,childKey,depth+1));
+    };
+    visit(result);
+    return rows;
   };
   window.restoreMlPriorities=()=>{
     const store=readPriorityStore();
@@ -619,16 +634,28 @@
     if(!id)throw Error('우선순위 대상의 Slack person_id가 필요합니다');
     window.mlPriorityResult=result;
     document.getElementById('ml-priority-results')?.remove();
-    const taskIdByName=new Map(Object.entries(window.TASKS||{}).map(([taskId,task])=>[normalizeTaskName(task.sourceName||task.name),taskId]));
+    const taskEntries=Object.entries(window.TASKS||{});
+    const taskIdByName=new Map(taskEntries.map(([taskId,task])=>[normalizeTaskName(task.sourceName||task.name),taskId]));
+    const numberOrNull=value=>value==null||value===''?null:(Number.isFinite(Number(value))?Number(value):null);
     const normalized=priorityRows(result).map(([sourceTaskId,value])=>({
-      sourceTaskId,
-      taskName:value?.task_name??value?.title??value?.name??'',
-      score:Number(value?.final_priority_score??value?.priority_score??value?.score),
-      rank:Number(value?.final_priority_rank??value?.priority_rank??value?.rank),
-    })).filter(value=>Number.isFinite(value.score)&&Number.isFinite(value.rank));
+      sourceTaskId:String(value?.task_id??value?.taskId??value?.id??value?.task?.task_id??sourceTaskId),
+      taskName:value?.task_name??value?.taskName??value?.title??value?.name??value?.task?.title??value?.task?.name??(/^TASK[-_]/i.test(String(sourceTaskId))?'':String(sourceTaskId)),
+      score:numberOrNull(value?.final_priority_score??value?.priority_score??value?.score??value?.priority??value?.value),
+      rank:numberOrNull(value?.final_priority_rank??value?.priority_rank??value?.rank??value?.ranking??value?.order),
+    })).filter(value=>value.score!=null||value.rank!=null);
+    const byScore=normalized.filter(value=>value.score!=null).sort((a,b)=>b.score-a.score);
+    byScore.forEach((value,index)=>{if(value.rank==null)value.rank=index+1;});
+    const fuzzyTaskId=name=>{
+      const wanted=normalizeTaskName(name);if(!wanted)return null;
+      const exact=taskIdByName.get(wanted);if(exact)return exact;
+      const candidates=taskEntries.map(([taskId,task])=>[taskId,normalizeTaskName(task.sourceName||task.name)])
+        .filter(([,candidate])=>candidate.length>=5&&(candidate.includes(wanted)||wanted.includes(candidate)))
+        .sort((a,b)=>Math.abs(a[1].length-wanted.length)-Math.abs(b[1].length-wanted.length));
+      return candidates[0]?.[0]||null;
+    };
     const matched=normalized.map(value=>[
-      window.TASKS?.[value.sourceTaskId] ? value.sourceTaskId : taskIdByName.get(normalizeTaskName(value.taskName)), value,
-    ]).filter(([taskId])=>taskId&&window.TASKS?.[taskId]);
+      window.TASKS?.[value.sourceTaskId] ? value.sourceTaskId : fuzzyTaskId(value.taskName), value,
+    ]).filter(([taskId,value])=>taskId&&window.TASKS?.[taskId]&&value.rank!=null);
     window.mlPriorityTaskIdsByPerson=window.mlPriorityTaskIdsByPerson||{};
     for(const taskId of window.mlPriorityTaskIdsByPerson[id]||[]){
       if(window.TASKS?.[taskId]){
@@ -640,8 +667,13 @@
     const store=readPriorityStore();store.byTaskId=store.byTaskId||{};store.byTaskName=store.byTaskName||{};
     for(const value of normalized){
       const saved={personId:id,sourceTaskId:value.sourceTaskId,taskName:value.taskName,score:value.score,rank:value.rank,savedAt:new Date().toISOString()};
-      store.byTaskId[value.sourceTaskId]=saved;
-      store.byTaskName[normalizeTaskName(saved.taskName)]=saved;
+      if(value.sourceTaskId)store.byTaskId[value.sourceTaskId]=saved;
+      if(value.taskName)store.byTaskName[normalizeTaskName(saved.taskName)]=saved;
+    }
+    for(const [taskId,value] of matched){
+      const saved={personId:id,sourceTaskId:value.sourceTaskId,taskName:value.taskName,score:value.score,rank:value.rank,savedAt:new Date().toISOString()};
+      store.byTaskId[taskId]=saved;
+      store.byTaskName[normalizeTaskName(window.TASKS[taskId].sourceName||window.TASKS[taskId].name)]=saved;
     }
     writePriorityStore(store);window.mlPriorityByTask=store.byTaskId;
     window.restoreMlPriorities();
@@ -668,7 +700,7 @@
   };
   const originalAssignment=window.createAdminAssignment;
   if(typeof originalAssignment==='function')window.createAdminAssignment=async(...args)=>{
-    const assigneeId=document.getElementById('admin-assignee')?.value;
+    const assigneeId=document.getElementById('admin-assignee')?.dataset.personId;
     const assignment=await originalAssignment(...args);
     if(document.getElementById('admin-assign-result')?.textContent?.startsWith('배정 저장 완료')){
       try{
@@ -676,6 +708,7 @@
         const priority=assignment?.priorities
           ? window.applyMlPriorityResult(assigneeId,assignment.priorities)
           : await window.refreshMlPriorities(assigneeId);
+        if(!priority.matchedTaskIds.length)throw new Error('ML 결과와 일치하는 Task를 찾지 못했습니다');
         document.getElementById('admin-assign-result').textContent+=` · 선택 인수자 ML 우선순위 ${priority.matchedTaskIds.length}건 반영`;
       }
       catch(e){document.getElementById('admin-assign-result').textContent+=' · 우선순위 산출 실패: '+e.message;}
@@ -694,4 +727,16 @@
   window.refreshMlTrainingStatus().catch(()=>{
     const el=document.getElementById('model-meta');if(el)el.textContent='모델 학습 상태 조회 불가';
   });
+  // Recover older approvals whose ML response arrived before the browser-side
+  // mapper supported the deployed response shape.
+  window.setTimeout(async()=>{
+    if(Object.values(window.TASKS||{}).some(task=>Number(task.priorityRank)>0))return;
+    try{
+      const response=await fetch('/api/demo/handover-requests',{credentials:'same-origin',cache:'no-store'});
+      if(!response.ok)return;
+      const rows=(await response.json()).requests||[];
+      const people=[...new Set(rows.filter(row=>row.status==='approved').map(row=>row.approved_by||row.source_person_id).filter(Boolean))];
+      for(const id of people)await window.refreshMlPriorities(id);
+    }catch(_error){}
+  },1200);
 })();
