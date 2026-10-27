@@ -413,9 +413,15 @@ def demo_handover_list(_=Depends(demo_auth), actor=Depends(slack_actor)):
 def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth), actor=Depends(slack_actor)):
     if actor and actor['person_id'] != body.requester_id:
         raise HTTPException(403, 'Cannot request on behalf of another person')
-    # Explicit one-scenario scope for the UI prototype.
-    if (body.requester_id, body.source_person_id, body.work_id) != (WON_ID, JISOO_ID, WORK_DEMO_ID):
-        raise HTTPException(422, 'Unsupported demo handover')
+    snapshot = SupabaseStore().snapshot()
+    person_ids = {person['person_id'] for person in snapshot['persons']}
+    work_ids = {work['work_id'] for work in snapshot['works']}
+    if body.requester_id not in person_ids or body.source_person_id not in person_ids:
+        raise HTTPException(404, 'Unknown handover person')
+    if body.work_id not in work_ids:
+        raise HTTPException(404, 'Unknown Work')
+    if body.requester_id == body.source_person_id:
+        raise HTTPException(422, 'Requester and source person must differ')
     rows = _handover_db('POST', payload={
         'requester_id': body.requester_id,
         'source_person_id': body.source_person_id,
@@ -433,17 +439,13 @@ def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(
         raise HTTPException(422, 'Invalid request ID') from None
     if actor and actor['person_id'] != body.actor_id:
         raise HTTPException(403, 'Actor mismatch')
-    if body.actor_id != JISOO_ID:
-        raise HTTPException(403, 'Demo actor cannot approve')
     rows = _handover_db(params={
         'select': '*', 'request_id': 'eq.' + request_id, 'status': 'eq.pending',
     })
     if not rows:
         raise HTTPException(409, 'Request is not pending')
-    if actor and actor['person_id'] != rows[0]['source_person_id']:
+    if body.actor_id != rows[0]['source_person_id']:
         raise HTTPException(403, 'Approval permission denied')
-    if rows[0]['source_person_id'] != JISOO_ID:
-        raise HTTPException(403, 'Outside of demo team')
     patch = {'status': body.status, 'approved_by': body.actor_id,
              'verification_method': 'demo_yubikey' if body.status == 'approved' else None,
              'approved_at': datetime.now(timezone.utc).isoformat() if body.status == 'approved' else None}

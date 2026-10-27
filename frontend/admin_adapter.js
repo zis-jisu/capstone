@@ -164,7 +164,7 @@
  }
  async function load(){return (await api()).requests.map(r=>({
   id:r.request_id,requester:'원이정',owner:'김지수',workId:r.work_id,
-  title:WORK_TITLE,status:(!verifiedMode&&r.status==='pending'&&managerApprovals()[r.request_id])||r.status,approvedBy:(!verifiedMode&&r.status==='pending'&&managerApprovals()[r.request_id])?'팀장 (UI 시연)':r.approved_by===PERSON_IDS['김지수']?'김지수':'-',
+  title:WORK_TITLE,status:(!verifiedMode&&r.status==='pending'&&managerApprovals()[r.request_id])||r.status,approvedBy:(!verifiedMode&&r.status==='pending'&&managerApprovals()[r.request_id])?'팀장 (UI 시연)':Object.keys(PERSON_IDS).find(name=>PERSON_IDS[name]===r.approved_by)||r.approved_by||'-',
   requesterId:r.requester_id,sourceId:r.source_person_id
  }));}
   function panel(title,body){
@@ -253,12 +253,16 @@
   panel(actor==='팀장'?'팀장 승인 시연 (DB 미반영)':'유비키 인증','<div class="rounded-2xl bg-[#F2F7FF] p-6 text-center"><div class="text-[38px]">🔑</div><h3 class="mt-3 text-[17px] font-bold">보안키 터치 시연</h3><p class="mt-2 text-[12px] text-[#6B7684]">보안키 확인 절차를 시연하는 화면입니다.</p><button id="handover-confirm" class="mt-5 rounded-xl bg-[#3182F6] px-5 py-3 text-white font-bold">인증 확인 · 승인</button></div>');
   el('handover-confirm').onclick=()=>decide(id,'approved');
  }
- async function decide(id,status){
-  if(actor==='팀장'&&!verifiedMode){saveManagerApproval(id,status);await inbox();message('팀장 '+(status==='approved'?'승인':'반려')+' UI 시연이 완료됐습니다. 실제 DB에는 반영되지 않습니다.');return;}
-  if(actor!=='김지수')return message('처리 권한이 없습니다.');
-  try{await api('/'+encodeURIComponent(id)+'/decision','POST',{actor_id:PERSON_IDS[actor],status});await inbox();if(status==='approved'&&window.refreshMlPriorities)window.refreshMlPriorities('김지수').catch(e=>message('우선순위 산출 실패: '+e.message));message(status==='approved'?'DB 승인 완료. 원이정 계정에서 업무를 확인하세요.':'DB에 반려 상태를 저장했습니다.');}
-  catch(e){message(e.message)}
- }
+  async function decide(id,status){
+   if(actor==='팀장'&&!verifiedMode){saveManagerApproval(id,status);await inbox();message('팀장 '+(status==='approved'?'승인':'반려')+' UI 시연이 완료됐습니다. 실제 DB에는 반영되지 않습니다.');return;}
+   const actorId=PERSON_IDS[actor];
+   let request;
+   try{request=(await load()).find(r=>r.id===id&&r.status==='pending');}
+   catch(e){return message(e.message)}
+   if(!actorId||!request||request.sourceId!==actorId)return message('처리 권한이 없습니다.');
+   try{await api('/'+encodeURIComponent(id)+'/decision','POST',{actor_id:actorId,status});await inbox();if(status==='approved'&&window.refreshMlPriorities)window.refreshMlPriorities(request.requesterId).catch(e=>message('우선순위 산출 실패: '+e.message));message(status==='approved'?'DB 승인 완료. 인수자 계정에서 업무를 확인하세요.':'DB에 반려 상태를 저장했습니다.');}
+   catch(e){message(e.message)}
+  }
   function switchActor(next){
   if(!ACCOUNT.includes(next))return;
   actor=next;closePanel();if(typeof closeImport==='function')closeImport();
