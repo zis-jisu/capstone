@@ -486,6 +486,11 @@
    const selected=approvedIds.length?approvedIds:[...new Set(all.filter(r=>r.status==='pending'||r.status==='rejected').map(r=>r.workId))];
    setActiveWorkIds(selected);
    const records=all.filter(r=>selected.includes(r.workId));
+   // Source-person ownership comes only from approved incoming handover records.
+   const approvedRecords=records.filter(r=>r.status==='approved');
+   window.linkingApprovedWorkSources=Object.fromEntries(
+     approvedIds.map(workId=>[workId,[...new Set(approvedRecords.filter(r=>r.workId===workId).map(r=>r.owner))]])
+   );
    const approved=records.some(r=>r.status==='approved');
    const pending=records.some(r=>r.status==='pending');
    const rejected=records.some(r=>r.status==='rejected');
