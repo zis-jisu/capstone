@@ -124,8 +124,7 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
           <option value="deadline">마감순</option>
           <option value="latest">최신순</option>
         </select>
-        <button onclick="toggleFilter('collab',this)" class="filter-btn h-9 px-3 rounded-xl border border-[#DDE3EA] bg-white text-[12px] font-medium">협업업무</button>
-        <button onclick="toggleFilter('solo',this)" class="filter-btn h-9 px-3 rounded-xl border border-[#DDE3EA] bg-white text-[12px] font-medium">개인업무</button>
+
       </div>
     </section>
 
@@ -419,8 +418,6 @@ function render(){
 function projectForTask(taskId){return PROJECTS.find(p=>p.tasks.includes(taskId));}
 function toggleFilter(type,btn){
   state.filter=state.filter===type?null:type;
-  document.querySelectorAll('.filter-btn').forEach(b=>b.className='filter-btn h-9 px-3 rounded-xl border border-[#DDE3EA] bg-white text-[12px] font-medium');
-  if(state.filter)btn.className='filter-btn h-9 px-3 rounded-xl border border-[#BFDBFE] bg-[#F2F7FF] text-[#1B64DA] text-[12px] font-bold';
   renderTaskList();
 }
 function selectProject(id){
