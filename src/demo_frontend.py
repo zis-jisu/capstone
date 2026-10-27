@@ -459,4 +459,17 @@ def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(
     }, payload=patch)
     if not updated:
         raise HTTPException(409, 'Request was already processed')
-    return {'request': updated[0]}
+    priority_result = None
+    priority_error = None
+    if body.status == 'approved':
+        try:
+            # Approval is already committed. Calculate for the actual approver
+            # (the source person whose Tasks are being handed over) and return
+            # the result in the same response for frontend storage.
+            priority_result = ml_bridge.priorities(updated[0]['approved_by'])
+        except HTTPException as exc:
+            priority_error = str(exc.detail)
+        except Exception:
+            priority_error = 'ML priority response could not be processed'
+    return {'request': updated[0], 'priorities': priority_result,
+            'priority_error': priority_error}

@@ -269,9 +269,9 @@
     if(status==='approved'){
      try{
       if(typeof window.refreshMlPriorities!=='function')throw new Error('우선순위 API 연결을 찾을 수 없습니다');
-      const priority=await window.refreshMlPriorities(request.requesterId);
-      if(!priority.matchedTaskIds.length)throw new Error('승인된 인수자와 매핑된 ML Task가 없습니다');
-      message('팀장 승인 완료 · 인수자의 ML 우선순위를 저장하고 Task에 반영했습니다.');
+      const priority=await window.refreshMlPriorities(request.sourceId);
+      if(!priority.matchedTaskIds.length)throw new Error('업무 원소유자의 ML 결과와 매핑된 Task가 없습니다');
+      message('팀장 승인 완료 · 업무 원소유자의 ML 우선순위를 저장하고 Task에 반영했습니다.');
      }catch(priorityError){
       message('팀장 승인은 완료됐지만 우선순위 반영에 실패했습니다: '+priorityError.message);
      }
@@ -284,14 +284,16 @@
    catch(e){return message(e.message)}
    if(!actorId||!request||request.sourceId!==actorId)return message('처리 권한이 없습니다.');
    try{
-    await api('/'+encodeURIComponent(id)+'/decision','POST',{actor_id:actorId,status});
+    const decision=await api('/'+encodeURIComponent(id)+'/decision','POST',{actor_id:actorId,status});
     await inbox();
     if(status==='approved'){
      try{
-      if(typeof window.refreshMlPriorities!=='function')throw new Error('우선순위 API 연결을 찾을 수 없습니다');
-      const priority=await window.refreshMlPriorities(request.requesterId);
-      if(!priority.matchedTaskIds.length)throw new Error('승인된 인수자와 매핑된 ML Task가 없습니다');
-      message('DB 승인 완료 · 인수자의 ML 우선순위를 반영했습니다.');
+      if(decision.priority_error)throw new Error(decision.priority_error);
+      const priority=decision.priorities
+       ? window.applyMlPriorityResult(actorId,decision.priorities)
+       : await window.refreshMlPriorities(actorId);
+      if(!priority.matchedTaskIds.length)throw new Error('김지수의 ML 결과와 매핑된 프론트 Task가 없습니다');
+      message('DB 승인 완료 · 김지수의 ML 우선순위를 저장하고 Task에 반영했습니다.');
      }catch(priorityError){
       message('DB 승인은 완료됐지만 우선순위 산출에 실패했습니다: '+priorityError.message);
      }
@@ -548,25 +550,24 @@
 (() => {
   'use strict';
   const personId = name => ({'원이정':'U0C20G9MRML','김지수':'U0C22C8M742','박서연':'U0C6WSR5275','최민준':'U0C38J2MUF4'})[name] || null;
-  const PRIORITY_STORAGE_KEY='linking_ml_priorities_v1';
-  const normalizeTaskName=value=>String(value??'').replace(/\s+/g,' ').trim().toLocaleLowerCase('ko-KR');
+  const PRIORITY_STORAGE_KEY='linking_ml_priorities_v2';
+  const normalizeTaskName=value=>String(value??'').normalize('NFKC').toLocaleLowerCase('ko-KR').replace(/[^0-9a-z가-힣]/g,'');
   const readPriorityStore=()=>{
     try{return JSON.parse(localStorage.getItem(PRIORITY_STORAGE_KEY)||'{"byTaskId":{},"byTaskName":{}}')}
     catch{return {byTaskId:{},byTaskName:{}}}
   };
   const writePriorityStore=store=>localStorage.setItem(PRIORITY_STORAGE_KEY,JSON.stringify(store));
   const priorityRows=result=>{
-    const source=result?.rankings??result?.priorities??result?.task_priorities??result?.data?.rankings??result?.data?.priorities??result;
+    const source=result?.rankings??result?.priorities??result?.task_priorities??result?.ranked_tasks??result?.tasks??result?.data?.rankings??result?.data?.priorities??result;
     if(Array.isArray(source))return source.map((value,index)=>[value?.task_id||value?.id||String(index),value]);
     if(source&&typeof source==='object')return Object.entries(source);
     return [];
   };
   window.restoreMlPriorities=()=>{
     const store=readPriorityStore();
-    const taskIdByName=new Map(Object.entries(window.TASKS||{}).map(([taskId,task])=>[normalizeTaskName(task.sourceName||task.name),taskId]));
-    for(const [storedTaskId,value] of Object.entries(store.byTaskId||{})){
-      const taskId=window.TASKS?.[storedTaskId]?storedTaskId:taskIdByName.get(normalizeTaskName(value.taskName));
-      if(!taskId||!window.TASKS?.[taskId])continue;
+    for(const [taskId,task] of Object.entries(window.TASKS||{})){
+      const value=store.byTaskId?.[taskId]||store.byTaskName?.[normalizeTaskName(task.sourceName||task.name)];
+      if(!value)continue;
       window.TASKS[taskId].risk=value.score;
       window.TASKS[taskId].priorityScore=value.score;
       window.TASKS[taskId].priorityRank=value.rank;
@@ -612,12 +613,10 @@
     })().finally(()=>{trainingPromise=null;});
     return trainingPromise;
   };
-  window.refreshMlPriorities=async(target)=>{
+  window.applyMlPriorityResult=(target,result)=>{
     const id=personId(target)||target;
     if(!id)throw Error('우선순위 대상의 Slack person_id가 필요합니다');
-    const r=await fetch('/api/ml/priorities',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({person_id:id})});
-    if(!r.ok)throw Error('우선순위 산출 실패 (HTTP '+r.status+')');
-    const result=await r.json();window.mlPriorityResult=result;
+    window.mlPriorityResult=result;
     document.getElementById('ml-priority-results')?.remove();
     const taskIdByName=new Map(Object.entries(window.TASKS||{}).map(([taskId,task])=>[normalizeTaskName(task.sourceName||task.name),taskId]));
     const normalized=priorityRows(result).map(([sourceTaskId,value])=>({
@@ -629,7 +628,6 @@
     const matched=normalized.map(value=>[
       window.TASKS?.[value.sourceTaskId] ? value.sourceTaskId : taskIdByName.get(normalizeTaskName(value.taskName)), value,
     ]).filter(([taskId])=>taskId&&window.TASKS?.[taskId]);
-    if(normalized.length&&!matched.length)throw Error('ML 결과의 task_id 또는 업무명이 프론트 Task와 일치하지 않습니다');
     window.mlPriorityTaskIdsByPerson=window.mlPriorityTaskIdsByPerson||{};
     for(const taskId of window.mlPriorityTaskIdsByPerson[id]||[]){
       if(window.TASKS?.[taskId]){
@@ -638,21 +636,24 @@
         window.TASKS[taskId].priorityScore=null;
       }
     }
-    for(const [taskId,value] of matched){
-      window.TASKS[taskId].risk=value.score;
-      window.TASKS[taskId].priorityScore=value.score;
-      window.TASKS[taskId].priorityRank=value.rank;
-    }
-    window.mlPriorityTaskIdsByPerson[id]=matched.map(([taskId])=>taskId);
     const store=readPriorityStore();store.byTaskId=store.byTaskId||{};store.byTaskName=store.byTaskName||{};
-    for(const [taskId,value] of matched){
-      const saved={personId:id,taskId,sourceTaskId:value.sourceTaskId,taskName:value.taskName||window.TASKS[taskId].sourceName||window.TASKS[taskId].name,score:value.score,rank:value.rank,savedAt:new Date().toISOString()};
-      store.byTaskId[taskId]=saved;
+    for(const value of normalized){
+      const saved={personId:id,sourceTaskId:value.sourceTaskId,taskName:value.taskName,score:value.score,rank:value.rank,savedAt:new Date().toISOString()};
+      store.byTaskId[value.sourceTaskId]=saved;
       store.byTaskName[normalizeTaskName(saved.taskName)]=saved;
     }
     writePriorityStore(store);window.mlPriorityByTask=store.byTaskId;
+    window.restoreMlPriorities();
+    window.mlPriorityTaskIdsByPerson[id]=matched.map(([taskId])=>taskId);
     if(typeof window.render==='function')window.render();
     return {result,matchedTaskIds:matched.map(([taskId])=>taskId)};
+  };
+  window.refreshMlPriorities=async(target)=>{
+    const id=personId(target)||target;
+    if(!id)throw Error('우선순위 대상의 Slack person_id가 필요합니다');
+    const r=await fetch('/api/ml/priorities',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({person_id:id})});
+    if(!r.ok)throw Error('우선순위 산출 실패 (HTTP '+r.status+')');
+    return window.applyMlPriorityResult(id,await r.json());
   };
   const originalSync=window.runAdminSync;
   if(typeof originalSync==='function')window.runAdminSync=async(...args)=>{
