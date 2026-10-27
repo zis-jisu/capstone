@@ -149,7 +149,7 @@
       const ongoing=values.filter(task=>task.status==='진행 중').length;
       const waiting=values.filter(task=>['대기','차단','지연'].includes(task.status)).length;
       const stats=root.getElementById('received-work-stats');
-      if(stats)stats.innerHTML=[['이어받은 Work',PROJECTS.length],['진행 중 Task',ongoing],['대기 Task',waiting]].map(([label,count])=>`<div class="rounded-[24px] bg-[#F7F8FA] px-6 py-6 min-h-[140px]"><div class="text-[14px] text-[#6B7684]">${label}</div><div class="mt-6 text-[32px] leading-none font-bold text-[#191F28]">${count}<span class="ml-2 text-[14px] font-normal text-[#8B95A1]">건</span></div></div>`).join('');
+      if(stats)stats.innerHTML=[['이어받은 Work',PROJECTS.length],['진행 중 Task',ongoing],['대기 Task',waiting]].map(([label,count])=>`<div class="rounded-xl bg-[#F7F8FA] px-3 sm:px-4 py-3"><div class="text-[11px] sm:text-[12px] text-[#6B7684]">${label}</div><div class="mt-2 text-[22px] leading-none font-bold text-[#191F28]">${count}<span class="ml-1 text-[11px] font-normal text-[#8B95A1]">건</span></div></div>`).join('');
       if(collabCount)collabCount.textContent=`협업 업무 ${collab}`;
       if(soloCount)soloCount.textContent=`개인 업무 ${values.length-collab}`;
     };
@@ -177,25 +177,41 @@
   }
 
   renderPriorityOverview = function () {
-    const el=root.getElementById('priority-overview');if(!el)return;
+    const rootEl=root.getElementById('priority-overview'); if(!rootEl)return;
+    const tasksFor=work=>work.tasks.map(id=>({id,task:TASKS[id]})).filter(row=>row.task);
+    const rankValue=task=>{const n=Number(task.priorityRank);return task.priorityRank!=null&&Number.isFinite(n)&&n>0?n:null;};
+    const scoreValue=task=>{const n=Number(task.priorityScore);return task.priorityScore!=null&&Number.isFinite(n)?n:null;};
     const items=PROJECTS.map(work=>{
-      const tasks=work.tasks.map(id=>({id,task:TASKS[id]})).filter(row=>row.task);
-      const active=tasks.filter(row=>row.task.status!=='완료');
-      const scored=active.filter(row=>Number.isFinite(Number(row.task.priorityScore))&&row.task.priorityScore!=null);
-      const ranked=active.filter(row=>Number.isFinite(Number(row.task.priorityRank))&&Number(row.task.priorityRank)>0);
-      const best=ranked.length?[...ranked].sort((a,b)=>Number(a.task.priorityRank)-Number(b.task.priorityRank))[0]:[...scored].sort((a,b)=>Number(b.task.priorityScore)-Number(a.task.priorityScore))[0];
-      return {work,tasks,active,best,rank:best?.task.priorityRank!=null?Number(best.task.priorityRank):null,score:best?.task.priorityScore!=null?Number(best.task.priorityScore):null};
+      const tasks=tasksFor(work),remaining=tasks.filter(x=>x.task.status!=='완료');
+      const ranked=remaining.filter(x=>rankValue(x.task)!=null).sort((a,b)=>rankValue(a.task)-rankValue(b.task));
+      const scored=remaining.filter(x=>scoreValue(x.task)!=null).sort((a,b)=>scoreValue(b.task)-scoreValue(a.task));
+      const lead=ranked[0]||scored[0]||null;
+      return {work,tasks,lead,rank:lead?rankValue(lead.task):null,score:lead?scoreValue(lead.task):null,done:tasks.filter(x=>x.task.status==='완료').length};
     }).sort((a,b)=>{
-      if(!!a.best!==!!b.best)return a.best?-1:1;
+      if(!!a.lead!==!!b.lead)return a.lead?-1:1;
       if(a.rank!=null&&b.rank!=null&&a.rank!==b.rank)return a.rank-b.rank;
-      if(a.rank!=null!== (b.rank!=null))return a.rank!=null?-1:1;
+      if((a.rank!=null)!==(b.rank!=null))return a.rank!=null?-1:1;
       return (b.score??-Infinity)-(a.score??-Infinity);
     });
-    const scored=items.filter(item=>item.best).length;
-    const round=value=>value==null||!Number.isFinite(value)?'미산정':String(Math.round(value));
-    const openWork=id=>{state.project=id;state.filter=null;state.task=PROJECTS.find(w=>w.id===id)?.tasks.find(taskId=>TASKS[taskId]?.status!=='완료')||PROJECTS.find(w=>w.id===id)?.tasks[0]||null;render();root.getElementById('task-detail')?.scrollIntoView({behavior:'smooth',block:'start'});};
-    window.openPriorityWork=openWork;
-    el.innerHTML=`<div class="flex flex-wrap items-center justify-between gap-3"><div><h2 class="text-[17px] font-bold">Work 우선순위</h2><p class="mt-1 text-[12px] text-[#8B95A1]">우선순위가 높은 Work부터 표시 · Work 위에 마우스를 올리면 Task 확인</p></div><span class="text-[12px] text-[#6B7684]">우선순위 산정 ${scored}/${items.length} Work</span></div><div class="mt-5 space-y-3">${items.map(({work,tasks,active,best,rank,score},i)=>`<div class="group relative rounded-2xl border border-[#E5E8EB] bg-[#FAFBFC] hover:border-[#BFD4FF] focus-within:border-[#BFD4FF]"><button type="button" onclick="openPriorityWork('${html(work.id)}')" aria-label="${html(work.name)} 상세 보기" class="w-full text-left flex flex-wrap sm:flex-nowrap items-center gap-3 rounded-2xl p-4"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white font-bold text-[#3182F6]">${i+1}</span><div class="min-w-0 flex-1"><div class="font-bold text-[14px]">${html(work.name)}</div><div class="mt-2 flex flex-wrap items-center gap-3"><div class="h-1.5 w-24 max-w-full rounded-full bg-[#E8EBF0] overflow-hidden"><div class="h-full rounded-full bg-[#498667]" style="width:${tasks.length?Math.round(tasks.filter(({task})=>task.status==='완료').length/tasks.length*100):0}%"></div></div><span class="text-[11px] font-medium text-[#8B95A1]">완료 ${tasks.filter(({task})=>task.status==='완료').length}/${tasks.length} <span class="text-[10px]">⌄</span></span></div></div><span class="shrink-0 rounded-full bg-[#EAF2FF] px-3 py-1.5 text-[11px] font-bold text-[#1B64DA]">우선순위 ${rank!=null&&rank>0?rank+'위 · ':''}${round(score)}점</span><span class="material-symbols-outlined text-[18px] text-[#8B95A1]">chevron_right</span></button><div class="hidden group-hover:block group-focus-within:block sm:absolute sm:left-[40%] sm:right-3 sm:top-[calc(100%-6px)] z-20 rounded-2xl bg-white border border-[#DDE3EA] p-4 shadow-xl"><p class="text-[12px] font-bold mb-3">포함된 Task</p><div class="space-y-2 max-h-64 overflow-y-auto">${tasks.map(({id,task})=>`<button type="button" onclick="openPriorityTask('${html(id)}')" class="w-full text-left flex items-start justify-between gap-3 rounded-xl p-2 hover:bg-[#F2F7FF]"><span class="min-w-0 text-[12px]">${html(task.name)}<span class="block mt-1 text-[10px] text-[#8B95A1]">${html(task.status)}</span></span><span class="text-[11px] shrink-0 font-bold text-[#3182F6]">${task.priorityRank!=null&&Number(task.priorityRank)>0?Number(task.priorityRank)+'위 · ':''}${round(task.priorityScore==null?null:Number(task.priorityScore))}점</span></button>`).join('')||'<span class="text-[12px] text-[#8B95A1]">등록된 Task가 없습니다.</span>'}</div></div></div>`).join('')||'<p class="text-[13px] text-[#8B95A1]">이어받은 Work가 없습니다.</p>'}</div>`;
+    const esc=html;
+    const points=n=>n==null?'미산정':Math.round(n)+'점';
+    const progress=item=>item.tasks.length?Math.round(item.done/item.tasks.length*100):0;
+    window.linkingPriorityItems=items;
+    const taskRows=item=>item.tasks.map(({id,task})=>`<button type="button" onclick="openPriorityTask('${esc(id)}')" class="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-left hover:bg-[#F2F7FF]"><span class="min-w-0"><span class="block text-[12px] font-semibold text-[#191F28]">${esc(task.name)}</span><span class="text-[11px] text-[#8B95A1]">${esc(task.status)}</span></span><span class="shrink-0 text-[11px] font-bold text-[#3182F6]">${rankValue(task)!=null?rankValue(task)+'위 · ':''}${points(scoreValue(task))}</span></button>`).join('')||'<p class="text-[12px] text-[#8B95A1]">Task 없음</p>';
+    window.linkingShowPriorityTasks=function(i) {
+      const item=window.linkingPriorityItems?.[i],panel=root.getElementById('work-priority-tasks');
+      if(!item||!panel)return;
+      root.querySelectorAll('[data-work-priority]').forEach((node,j)=>node.classList.toggle('border-[#3182F6]',j===i));
+      panel.innerHTML=`<div class="flex justify-between items-center gap-2"><div><div class="text-[12px] text-[#8B95A1]">선택한 Work의 세부 Task</div><h3 class="mt-1 text-[15px] font-bold">${esc(item.work.name)}</h3></div><span class="text-[12px] text-[#8B95A1]">${item.tasks.length}개</span></div><div class="mt-4 space-y-1">${taskRows(item)}</div>`;
+    };
+    window.openPriorityWork=function(id){
+      const work=PROJECTS.find(w=>w.id===id);if(!work)return;
+      state.project=id;state.filter=null;state.task=work.tasks.find(t=>TASKS[t]?.status!=='완료')||work.tasks[0]||null;
+      const select=root.getElementById('project-select');if(select)select.value=id;
+      render();root.getElementById('task-detail')?.scrollIntoView({behavior:'smooth',block:'start'});
+    };
+    rootEl.innerHTML=`<div class="flex items-center justify-between gap-2"><h2 class="text-[16px] font-bold">Work 우선순위</h2><span class="text-[11px] text-[#8B95A1]">Work를 선택하면 Task 확인</span></div><div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"><div class="space-y-2">${items.map((item,i)=>`<div data-work-priority="${i}" onmouseenter="linkingShowPriorityTasks(${i})" onfocusin="linkingShowPriorityTasks(${i})" class="rounded-xl border border-[#E5E8EB] bg-white hover:border-[#3182F6]"><button type="button" onclick="openPriorityWork('${esc(item.work.id)}')" class="w-full text-left px-4 py-3"><div class="flex items-center justify-between gap-2"><span class="min-w-0 truncate text-[13px] font-bold">${i+1}. ${esc(item.work.name)}</span><span class="shrink-0 text-[11px] font-bold text-[#3182F6]">${item.rank!=null?item.rank+'위 · ':''}${points(item.score)}</span></div><div class="mt-3 flex items-center gap-3"><div class="h-1.5 flex-1 rounded-full bg-[#E8EBF0] overflow-hidden"><div class="h-full bg-[#498667] rounded-full" style="width:${progress(item)}%"></div></div><span class="shrink-0 text-[11px] text-[#8B95A1]">완료 ${item.done}/${item.tasks.length} ⌄</span></div></button></div>`).join('')||'<p class="text-[12px] text-[#8B95A1]">이어받은 Work가 없습니다.</p>'}</div><div id="work-priority-tasks" class="rounded-xl border border-[#EEF0F3] bg-[#FAFBFC] p-4 min-h-[160px]"><p class="text-[12px] text-[#8B95A1]">왼쪽 Work 위에 마우스를 올려 Task를 확인하세요.</p></div></div>`;
+    if(items.length)window.linkingShowPriorityTasks(0);
   };
 
   // Open the original channel message, not a fabricated example.
@@ -215,7 +231,6 @@
   };
   const originalEnter = enterApp;
   enterApp = function() {
-    if(!loaded && !isManagementRole()) return toast('업무 데이터를 불러오는 중입니다. 잠시 기다려주세요.');
     return originalEnter();
   };
   const loginButton = root.querySelector('#login-screen button');
@@ -256,17 +271,5 @@
       slack_messages:(data.slack_messages||[]).filter(m=>sourceIds.has(m.message_id))});
   };
   window.reloadDemoData=()=>window.loadVerifiedDemoData('');
-  fetch('/api/demo/auth/config',{credentials:'same-origin',cache:'no-store'})
-    .then(async response => {if(!response.ok)throw new Error('인증 설정 조회 실패');return response.json();})
-    .then(config => {
-      if(config.verified_mode)return; // Requires signed-in, verified user before querying Work.
-      return fetch('/api/demo/data',{credentials:'same-origin',cache:'no-store'})
-        .then(async response=>{if(!response.ok)throw new Error('백엔드 연결 실패 (HTTP '+response.status+')');return response.json();})
-        .then(attach);
-    })
-    .catch(err=>{
-      console.error(err);
-      const p=root.querySelector('#login-screen p');
-      if(p)p.textContent='데이터 로딩 실패: '+err.message;
-    });
+  // Do not fetch every employee's Work before login. Approved Work is scoped after login.
 })();
