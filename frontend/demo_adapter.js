@@ -75,6 +75,7 @@
       const prereqs = [...new Set(evs.map(e => e.prerequisite).filter(Boolean))];
       const depTitles = deps.filter(e => e.source_id === id).map(e => taskMap.get(e.target_id)?.title).filter(Boolean);
       const caution = prereqs.length ? prereqs.join(' · ') : 'Slack 근거에서 별도 선행조건이 확인되지 않았습니다.';
+      const explicitBlocker=String(t.blocker_reason||t.blocked_reason||'').trim();
       const rawDue=t.deadline_at||t.due_at;
       const preciseDue=rawDue && !Number.isNaN(Date.parse(rawDue)) ? new Date(rawDue).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}) : null;
       const deadline=preciseDue || t.deadline_text || '미정';
@@ -82,7 +83,8 @@
       TASKS[id] = {
         name: html(t.title), sourceName:String(t.title || ''), status: html(statusText(t.status)), risk:null, deadline:html(deadline), updated:Number(recent),
         type: ownerIds.length > 1 || collaboratorIds.length > 0 ? 'collab':'solo', owner:html(owners[0] || '담당자 미확인'),
-        contacts, people: collaborators.map(html), next:html(next), after:[], blocker:html(prereqs[0] || '명시된 차단 사유 없음'),
+        contacts, people: collaborators.map(html), next:html(next), after:[], blocker:html(explicitBlocker||prereqs[0] || '명시된 차단 사유 없음'),
+        prerequisiteTexts:prereqs.map(html), explicitBlocker:html(explicitBlocker),
         caution:html(caution), history:evs.map(e => html(`${authorForEvent(e)} · ${e.action || e.subject || e.evidence}`)),
         flow:[html(statusText(t.status)), html(next), '완료 확인'], depends:depTitles.map(html), approval:'원문 근거 참조',
       };
@@ -241,7 +243,15 @@
         const rawDeadline=String(task.deadline||'').trim();
         const hasDeadline=rawDeadline&&!['미정','마감일 미확인','미확인','없음','null'].includes(rawDeadline);
         const deadlineLabel=activeOrWaiting?(hasDeadline?'마감 '+esc(rawDeadline):'마감 미정'):'';
-        return '<button type="button" data-flow-task-id="'+esc(id)+'" aria-pressed="'+String(id===selectedTaskId)+'" class="w-full flex flex-wrap sm:flex-nowrap items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors '+(id===selectedTaskId?'border-[#5D6CFF] bg-[#F3F5FF]':'border-[#E8ECF1] bg-white hover:border-[#B0BEFF]')+'"><span class="shrink-0 inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-[11px] font-bold" style="background:'+st.bg+';color:'+st.fg+';border-color:'+st.fg+'40">'+esc(st.label)+'</span><span class="min-w-0 flex-1 text-[13px] font-semibold text-[#191F28]">'+esc(task.name)+'</span>'+(activeOrWaiting?'<span class="shrink-0 text-[11px] font-medium text-[#6B7684] whitespace-nowrap">'+deadlineLabel+'</span>':'')+'<span class="material-symbols-outlined shrink-0 text-[17px] text-[#8894A7]">chevron_right</span></button>';
+        const ownerLabel=task.owner||'담당자 미확인';
+        const outstanding=(task.depends||[]).filter(title=>{
+          const related=Object.values(TASKS).find(t=>t.sourceName===title||t.name===title);
+          return !related||related.status!=='완료';
+        });
+        const blocker=String(task.explicitBlocker||'').trim();
+        const prerequisites=task.prerequisiteTexts||[];
+        const reason=blocker?'차단 사유: '+blocker:outstanding.length?'선행 업무: '+outstanding.join(' · '):prerequisites.length?'선행 조건: '+prerequisites.join(' · '):'';
+        return '<button type="button" data-flow-task-id="'+esc(id)+'" aria-pressed="'+String(id===selectedTaskId)+'" class="w-full rounded-xl border px-4 py-3 text-left transition-colors '+(id===selectedTaskId?'border-[#5D6CFF] bg-[#F3F5FF]':'border-[#E8ECF1] bg-white hover:border-[#B0BEFF]')+'"><span class="flex items-center gap-3"><span class="shrink-0 inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-[11px] font-bold" style="background:'+st.bg+';color:'+st.fg+';border-color:'+st.fg+'40">'+esc(st.label)+'</span><span class="min-w-0 flex-1 text-[13px] font-semibold text-[#191F28]">'+esc(task.name)+'</span>'+(activeOrWaiting?'<span class="shrink-0 text-[11px] font-medium text-[#6B7684] whitespace-nowrap">'+deadlineLabel+'</span>':'')+'<span class="material-symbols-outlined shrink-0 text-[17px] text-[#8894A7]">chevron_right</span></span><span class="mt-2 flex items-center gap-1.5 pl-1 text-[11px] text-[#6B7684]"><span class="material-symbols-outlined text-[15px]">person</span>'+esc(ownerLabel)+'</span>'+(reason&&status(task)!=='done'?'<span class="mt-1 block pl-1 text-[11px] text-[#A35C00]">'+esc(reason)+'</span>':'')+'</button>';
       }).join('')||'<div class="p-3 text-[12px] text-[#8B95A1]">해당 유형의 Task가 없습니다.</div>';
       return '<div class="flex flex-wrap items-center justify-between gap-2"><div><p class="text-[11px] text-[#8B95A1]">선택한 Work · Task 목록</p><h3 class="mt-1 text-[17px] font-bold">'+esc(item.work.name)+'</h3></div><span class="text-[12px] text-[#6B7684]">완료 '+item.done+'/'+item.tasks.length+'</span></div>'+
         '<div class="mt-4 space-y-2">'+cards+'</div>'+
