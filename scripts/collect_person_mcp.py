@@ -9,7 +9,7 @@ from src.slack.mcp_server import collect_context
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("person_id")
-    parser.add_argument("--days", type=int, default=14)
+    parser.add_argument("--days", type=int, default=90)
     parser.add_argument("--out", default="handover_runs/slack_mcp_context.json")
     args = parser.parse_args()
     result = collect_context(args.person_id, args.days)

@@ -301,7 +301,7 @@ class AssignmentRequest(BaseModel):
 
 class CollectRequest(BaseModel):
     person_id: str = Field(pattern=r'^U[A-Z0-9]+$', max_length=40)
-    days: int = Field(default=14, ge=1, le=90)
+    days: int = Field(default=90, ge=1, le=90)
 
 
 def _db_assignments(method='GET', params=None, rows=None):
@@ -344,17 +344,95 @@ def ml_priorities(body: PriorityBody, _=Depends(demo_auth)):
     return ml_bridge.priorities(body.person_id)
 
 
+class WorkSyncRequest(BaseModel):
+    work_id: str = Field(default='WORK-00020', pattern=r'^WORK-00020$')
+    days: int = Field(default=90, ge=1, le=90)
+
+
+_work_sync_task = None
+
+
 @app.post('/api/demo/slack-link')
-def demo_slack_link(_=Depends(admin_auth)):
-    # Demo bootstrap: the ML Railway training job reads the isolated *_mock
-    # graph/RPC. Validate that same dataset before triggering the job.
-    snapshot = _frontend_store().snapshot()
-    if not snapshot['works'] or not snapshot['tasks']:
-        raise HTTPException(409, 'Supabase mock Work/Task data is empty')
-    graph = export_graph(snapshot)
-    if not graph['nodes'] or not graph['edges']:
-        raise HTTPException(409, 'Supabase mock graph is empty')
-    return ml_bridge.stream_training()
+async def demo_slack_link(body: WorkSyncRequest = WorkSyncRequest(), _=Depends(admin_auth)):
+    """Admin-only on-demand MCP collection -> extraction/save -> graph check -> ML."""
+    global _work_sync_task
+    from fastapi.responses import StreamingResponse
+    from src.work_sync import work_scope, evidence_threads, apply_collection
+    if not os.getenv('SLACK_TOKEN', '').strip():
+        raise HTTPException(503, 'Railway linking-web에 SLACK_TOKEN을 설정하세요.')
+    if _work_sync_task is not None and not _work_sync_task.done():
+        raise HTTPException(409, 'WORK-00020 Slack 연동이 이미 진행 중입니다.')
+    queue = asyncio.Queue()
+
+    async def execute():
+        saved = None
+        try:
+            store = SupabaseStore()
+            before = await asyncio.to_thread(store.snapshot)
+            scope = work_scope(before)
+            threads = evidence_threads(scope)
+            await queue.put({'status': 'running', 'stage': 'collect', 'progress_percent': 0,
+                             'message': f'WORK-00020 · 최근 {body.days}일 · {len(threads)}개 근거 스레드 MCP 수집 중'})
+            raw = await asyncio.wait_for(_call_slack_mcp('collect_slack_work_threads',
+                {'work_id': body.work_id, 'threads': threads, 'days': body.days}), timeout=300)
+            await queue.put({'status': 'running', 'stage': 'extract', 'progress_percent': 0,
+                             'message': f"Slack {len(raw['records'])}건 수집 완료 · 변경 확인 및 Event/Task/Work 처리 중"})
+            saved = await asyncio.to_thread(apply_collection, store, before, scope, raw, threads)
+            await queue.put({'status': 'running', 'stage': 'saved', 'sync': saved,
+                             'message': f"WORK-00020 동기화 확인 · 메시지 {saved['messages']}건 / 변경 {saved['changed_messages']}건 · 그래프 검증 중"})
+            # Confirm the original-table RPC actually contains the synced Work before ML starts.
+            from scripts.export_ml_rpc import fetch_graph
+            graph = await asyncio.to_thread(fetch_graph)
+            if not any(node.get('id') == body.work_id for node in graph['nodes']):
+                raise ValueError('WORK-00020 is missing from the ML graph RPC')
+            training = await asyncio.to_thread(ml_bridge.stream_training)
+            buffer, completed = '', False
+            async for chunk in training.body_iterator:
+                buffer += chunk.decode() if isinstance(chunk, bytes) else chunk
+                lines = buffer.split('\n'); buffer = lines.pop()
+                for line in lines:
+                    if not line.strip():
+                        continue
+                    event = json.loads(line)
+                    if event.get('status') == 'failed':
+                        raise RuntimeError('ML training failed')
+                    completed = completed or event.get('status') == 'completed'
+                    if event.get('status') != 'completed':
+                        await queue.put({**event, 'stage': 'training', 'sync': saved})
+            if buffer.strip():
+                final = json.loads(buffer)
+                if final.get('status') == 'failed':
+                    raise RuntimeError('ML training failed')
+                completed = completed or final.get('status') == 'completed'
+            if not completed:
+                raise RuntimeError('ML training did not confirm completion')
+            await queue.put({'status': 'completed', 'stage': 'completed', 'sync': saved,
+                             'message': 'WORK-00020 Slack 동기화 및 ML 학습 완료'})
+        except HTTPException as exc:
+            await queue.put({'status': 'failed', 'error': str(exc.detail), 'sync': saved})
+        except (ValueError, TimeoutError) as exc:
+            await queue.put({'status': 'failed', 'error': str(exc) or 'Slack MCP collection timed out', 'sync': saved})
+        except Exception:
+            # Do not return third-party response bodies, raw Slack text, or keys.
+            await queue.put({'status': 'failed', 'error': 'Slack 동기화 또는 ML 처리 실패. 서버 로그와 설정을 확인하세요.', 'sync': saved})
+        finally:
+            await queue.put(None)
+
+    # Task survives a browser disconnect, preventing duplicate extraction and writes.
+    _work_sync_task = asyncio.create_task(execute())
+
+    async def events():
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=15)
+            except asyncio.TimeoutError:
+                yield json.dumps({'status': 'running', 'stage': 'heartbeat', 'message': 'WORK-00020 처리 중'}) + '\n'
+                continue
+            if event is None:
+                break
+            yield json.dumps(event, ensure_ascii=False) + '\n'
+    return StreamingResponse(events(), media_type='application/x-ndjson',
+                             headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
 
 @app.get('/api/demo/meta')
@@ -441,7 +519,7 @@ def create_assignment(body:AssignmentRequest, _=Depends(admin_auth)):
             'priority_error':priority_error}
 
 
-async def _collect_via_mcp(person_id, days):
+async def _call_slack_mcp(tool_name, arguments):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
     if not os.getenv('SLACK_TOKEN'):
@@ -450,7 +528,7 @@ async def _collect_via_mcp(person_id, days):
     async with stdio_client(params) as (reader,writer):
         async with ClientSession(reader,writer) as session:
             await session.initialize()
-            result=await session.call_tool('collect_slack_person_work',{'person_id':person_id,'days':days})
+            result=await session.call_tool(tool_name,arguments)
             if result.isError:
                 raise HTTPException(502,'MCP collection failed')
             content=result.structuredContent
@@ -461,6 +539,10 @@ async def _collect_via_mcp(person_id, days):
             if not isinstance(content,dict) or not isinstance(content.get('records'),list):
                 raise HTTPException(502,'Unexpected MCP response')
             return content
+
+
+async def _collect_via_mcp(person_id, days=90):
+    return await _call_slack_mcp('collect_slack_person_work', {'person_id': person_id, 'days': days})
 
 
 @app.get('/api/manager/assignments')

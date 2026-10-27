@@ -225,6 +225,7 @@
     if(!response.ok)throw new Error('권한 확인 실패 (HTTP '+response.status+')');
     attach(await response.json());
   };
+  window.reloadDemoData=()=>window.loadVerifiedDemoData('');
   fetch('/api/demo/auth/config',{credentials:'same-origin',cache:'no-store'})
     .then(async response => {if(!response.ok)throw new Error('인증 설정 조회 실패');return response.json();})
     .then(config => {

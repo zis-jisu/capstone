@@ -94,12 +94,10 @@
   window.runAdminSync = async () => {
     if(currentUserRole!=='admin'||!token)return;
     const button=$('admin-sync-button'),output=$('admin-sync-result');
-    const days=Number($('admin-sync-days')?.value||14);
-    button.disabled=true;output.textContent=`최근 ${days}일 기준 · Supabase 업무 데이터 확인 중…`;
+    const days=Number($('admin-sync-days')?.value||90);
+    button.disabled=true;output.textContent=`WORK-00020 · 최근 ${days}일 Slack 메시지 수집 시작…`;
     try {
-      const db=await request('/api/demo/data');
-      output.textContent=`최근 ${days}일 · Supabase 조회 완료 · Work ${db.works?.length||0}건 / Task ${db.tasks?.length||0}건 · ML 학습 시작…`;
-      const response=await fetch('/api/demo/slack-link',{method:'POST',credentials:'same-origin',headers:{'X-Admin-Token':token}});
+      const response=await fetch('/api/demo/slack-link',{method:'POST',credentials:'same-origin',headers:{'X-Admin-Token':token,'Content-Type':'application/json'},body:JSON.stringify({work_id:'WORK-00020',days})});
       if(!response.ok){
         let detail='';
         try{detail=(await response.json()).detail||'';}catch(_error){}
@@ -114,14 +112,17 @@
         for(const line of lines){
           if(!line.trim())continue;
           const event=JSON.parse(line);
-          if(event.status==='failed')throw new Error(event.error||'ML 학습 실패');
+          if(event.sync)window.lastWork20Sync=event.sync;
+          if(event.status==='failed')throw new Error((event.sync?.saved?'Slack 저장 완료 · ':'')+(event.error||'연동 실패'));
           if(event.status==='completed')completed=true;
-          if(event.status==='running')output.textContent=`ML 모델 학습 중 · ${event.progress_percent||0}%`;
+          if(event.status==='running'&&event.stage!=='heartbeat')output.textContent=event.message||(event.stage==='training'?`ML 모델 학습 중 · ${event.progress_percent||0}%`:'WORK-00020 처리 중…');
         }
       }
       if(buffer.trim()){const last=JSON.parse(buffer);if(last.status==='completed')completed=true;if(last.status==='failed')throw Error(last.error||'학습 실패');}
       if(!completed)throw new Error('학습 완료 응답을 받지 못했습니다');
-      output.textContent='Supabase 연동 및 ML 모델 학습 완료';
+      const sync=window.lastWork20Sync;
+      output.textContent=`WORK-00020 Slack 동기화 및 ML 학습 완료 · 메시지 ${sync?.messages||0}건 / 변경 ${sync?.changed_messages||0}건`;
+      if(typeof window.reloadDemoData==='function')await window.reloadDemoData();
       if(window.refreshMlTrainingStatus)await window.refreshMlTrainingStatus();
     }catch(err){output.textContent='연동 실패 · '+err.message;}
     finally{button.disabled=false;}

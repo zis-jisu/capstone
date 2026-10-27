@@ -180,8 +180,8 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
          <div class="mt-5 grid gap-4">
            <div id="admin-sync-section" class="hidden rounded-[20px] border border-[#EEF0F3] p-5 space-y-3">
              <h3 class="font-bold text-[16px]">Slack 연동</h3>
-             <p class="text-[12px] text-[#6B7684]">Slack 연결을 확인하고 기존 Supabase 그래프로 ML 모델 학습을 시작합니다.</p>
-             <label class="block text-[12px] font-bold">조회 기간<select id="admin-sync-days" class="mt-2 w-full rounded-xl border border-[#DDE3EA] px-3 h-11 bg-white text-[13px]"><option value="7">최근 7일</option><option value="14" selected>최근 14일</option><option value="30">최근 30일</option></select></label>
+             <p class="text-[12px] text-[#6B7684]">WORK-00020의 Slack 근거 스레드를 MCP로 수집하고 변경된 업무를 반영한 뒤 ML 모델을 학습합니다.</p>
+             <label class="block text-[12px] font-bold">조회 기간<select id="admin-sync-days" class="mt-2 w-full rounded-xl border border-[#DDE3EA] px-3 h-11 bg-white text-[13px]"><option value="7">최근 7일</option><option value="14">최근 14일</option><option value="30">최근 30일</option><option value="90" selected>최근 90일</option></select></label>
              <button id="admin-sync-button" onclick="runAdminSync()" class="h-11 rounded-xl bg-[#191F28] px-4 text-white text-[13px] font-bold">Slack 연동하기</button>
              <div id="admin-sync-result" class="text-[12px] text-[#6B7684]" aria-live="polite">연동 대기</div>
            </div>
@@ -1248,7 +1248,7 @@ setMainView=function(view){if(senderEditing){toast('수정을 저장하거나 �
 
 render();
 </script>
-<script src="/demo_adapter.js?v=20261027-role-split"></script>
-<script src="/admin_adapter.js?v=20261027-role-split"></script>
+<script src="/demo_adapter.js?v=20261027-work20-mcp90"></script>
+<script src="/admin_adapter.js?v=20261027-work20-mcp90"></script>
 </body>
 </html>
