@@ -119,10 +119,19 @@
     selector.innerHTML = `<option value="all">전체 업무 · 세부 업무 ${tasks.length}건</option>` + works.map(w => `<option value="${html(w.work_id)}">${html(w.title)} · ${workTasks.get(w.work_id).length}건</option>`).join('');
     const selfSelector = root.getElementById('handover-project-select');
     selfSelector.innerHTML = HANDOVER_WORKS.map(w => `<option value="${html(w.id)}">${html(w.name)}</option>`).join('');
-    const heading = root.querySelector('#briefing-view section:first-child .text-\\[20px\\]');
-    if (heading) heading.textContent = `김지수님의 업무 ${tasks.length}건을 확인할 수 있어요`;
-    const summary = root.querySelector('#briefing-view section:first-child .text-\\[13px\\]');
-    if (summary) summary.textContent = `${works.length}개 상위 업무 · 실제 Supabase 데이터 기준`;
+    window.updateBriefingSummary = function(){
+      const values=Object.values(TASKS);
+      const collab=values.filter(task=>task.type==='collab').length;
+      const ranked=values.filter(task=>Number(task.priorityRank)>0&&Number.isFinite(Number(task.priorityScore))).length;
+      const heading=root.getElementById('briefing-task-summary');
+      const summary=root.getElementById('briefing-project-summary');
+      const collabCount=root.getElementById('briefing-collab-count');
+      const soloCount=root.getElementById('briefing-solo-count');
+      if(heading)heading.textContent=`김지수님에게서 세부 업무 ${values.length}건을 인수받았어요`;
+      if(summary)summary.textContent=`${PROJECTS.length}개 프로젝트 · ML 우선순위 연동 ${ranked}건`;
+      if(collabCount)collabCount.textContent=`협업 업무 ${collab}`;
+      if(soloCount)soloCount.textContent=`개인 업무 ${values.length-collab}`;
+    };
     const kicker = root.getElementById('header-kicker');
     if (kicker) kicker.textContent = 'Slack MCP · LLM · Supabase 연동 시연';
     graphStorageMessage = `Supabase 그래프 · ${data.graph?.metadata?.num_nodes ?? '?'} 노드 · ${data.graph?.metadata?.num_edges ?? '?'} 관계`;
@@ -139,17 +148,27 @@
     if(priorities) priorities.classList.remove('hidden');
     loaded = true;
     if(typeof window.restoreMlPriorities==='function')window.restoreMlPriorities();
+    window.updateBriefingSummary();
     render();
     const details = root.getElementById('handover-project-select'); if(details && HANDOVER_WORKS.length) details.value = HANDOVER_WORKS[0].id;
     if (mainView === 'handover' && HANDOVER_WORKS.length) renderMyWork();
     if(typeof renderImportPeople === 'function') renderImportPeople();
   }
 
-  // This demo's priority score is not provided by Supabase/ML; do not fabricate a numeric risk.
   renderPriorityOverview = function () {
     const el = root.getElementById('priority-overview'); if(!el) return;
-    const ids = Object.keys(TASKS);
-    el.innerHTML = `<div class="flex justify-between items-center gap-2"><div><h2 class="text-[16px] font-bold">현재 업무 ${ids.length}건</h2><p class="mt-1 text-[11px] text-[#8B95A1]">실제 DB 업무 · ML 위험도 점수는 아직 연결되지 않았어요.</p></div><button onclick="showAllTasks()" class="text-[12px] font-bold text-[#3182F6]">전체 보기 →</button></div><div class="mt-4 grid sm:grid-cols-2 xl:grid-cols-4 gap-2">${ids.slice(0,5).map(id=>{const t=TASKS[id];return `<button onclick="openPriorityTask('${id}')" class="text-left rounded-2xl border border-[#EEF0F3] bg-white p-3"><div class="text-[11px] text-[#8B95A1]">${t.status} · ${projectForTask(id).name}</div><div class="mt-2 text-[13px] font-bold">${t.name}</div><div class="mt-2 text-[10px] text-[#6B7684]">${t.deadline}</div></button>`}).join('')}</div>`;
+    const ids=Object.keys(TASKS);
+    const ranked=id=>Number(TASKS[id].priorityRank)>0&&Number.isFinite(Number(TASKS[id].priorityScore));
+    const rankedCount=ids.filter(ranked).length;
+    const ordered=[...ids].sort((a,b)=>{
+      if(ranked(a)!==ranked(b))return ranked(a)?-1:1;
+      if(ranked(a)&&ranked(b))return Number(TASKS[a].priorityRank)-Number(TASKS[b].priorityRank);
+      return Number(TASKS[b].updated||0)-Number(TASKS[a].updated||0);
+    });
+    const subtitle=rankedCount
+      ?`ML 우선순위 ${rankedCount}건 연동 · 미산정 ${ids.length-rankedCount}건`
+      :'승인 완료 후 승인자의 ML 우선순위가 여기에 반영돼요.';
+    el.innerHTML = `<div class="flex justify-between items-center gap-2"><div><h2 class="text-[16px] font-bold">현재 업무 ${ids.length}건</h2><p class="mt-1 text-[11px] text-[#8B95A1]">${subtitle}</p></div><button onclick="showAllTasks()" class="text-[12px] font-bold text-[#3182F6]">${ids.length}건 전체 보기 →</button></div><div class="mt-4 grid sm:grid-cols-2 xl:grid-cols-5 gap-2">${ordered.slice(0,5).map(id=>{const t=TASKS[id],project=projectForTask(id);return `<button onclick="openPriorityTask('${id}')" class="text-left rounded-2xl border border-[#EEF0F3] bg-white p-3"><div class="flex flex-wrap items-center justify-between gap-2"><span class="text-[11px] text-[#8B95A1]">${t.status}</span><span class="px-2 py-1 rounded-full text-[10px] font-bold ${riskBadge(t.risk)}">우선순위 ${priorityLabel(t)}</span></div><div class="mt-2 text-[10px] text-[#8B95A1]">${project?.name||'프로젝트 미확인'}</div><div class="mt-1 text-[13px] font-bold">${t.name}</div><div class="mt-2 text-[10px] text-[#6B7684]">${t.deadline}</div></button>`}).join('')}</div>`;
   };
 
   // Open the original channel message, not a fabricated example.

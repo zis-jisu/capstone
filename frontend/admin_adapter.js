@@ -645,6 +645,7 @@
     writePriorityStore(store);window.mlPriorityByTask=store.byTaskId;
     window.restoreMlPriorities();
     window.mlPriorityTaskIdsByPerson[id]=matched.map(([taskId])=>taskId);
+    if(typeof window.updateBriefingSummary==='function')window.updateBriefingSummary();
     if(typeof window.render==='function')window.render();
     return {result,matchedTaskIds:matched.map(([taskId])=>taskId)};
   };

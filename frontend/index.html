@@ -108,12 +108,12 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
     <section class="bg-white rounded-[22px] border border-[#EEF0F3] px-6 py-5">
       <div class="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <div class="text-[20px] font-bold">김지수님에게서 세부 업무 8건을 인수받았어요</div>
-          <div class="text-[13px] text-[#8B95A1] mt-1">3개 프로젝트 · 우선 확인이 필요한 세부 업무 3건</div>
+          <div id="briefing-task-summary" class="text-[20px] font-bold">업무 데이터를 불러오는 중이에요</div>
+          <div id="briefing-project-summary" class="text-[13px] text-[#8B95A1] mt-1">Supabase 업무 건수 확인 중</div>
         </div>
         <div class="flex items-center gap-2">
-          <span class="px-3 py-1.5 rounded-full bg-[#F2F7FF] text-[#1B64DA] text-[12px] font-bold">협업 업무 5</span>
-          <span class="px-3 py-1.5 rounded-full bg-[#FFF1F3] text-[#D92D20] text-[12px] font-bold">개인 업무 3</span>
+          <span id="briefing-collab-count" class="px-3 py-1.5 rounded-full bg-[#F2F7FF] text-[#1B64DA] text-[12px] font-bold">협업 업무 0</span>
+          <span id="briefing-solo-count" class="px-3 py-1.5 rounded-full bg-[#FFF1F3] text-[#D92D20] text-[12px] font-bold">개인 업무 0</span>
         </div>
       </div>
     </section>
@@ -125,10 +125,7 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
       <div class="flex items-center gap-2 flex-wrap">
         <span class="text-[12px] font-bold text-[#6B7684] mr-1">프로젝트</span>
         <select id="project-select" onchange="selectProject(this.value)" class="h-9 min-w-[190px] rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-bold outline-none focus:border-[#3182F6]">
-          <option value="all">전체 프로젝트 · 세부 업무 8건</option>
-          <option value="p1">월말 정산 · 세부 업무 3건</option>
-          <option value="p2">SAP 구매 · 세부 업무 3건</option>
-          <option value="p3">교육자료 · 세부 업무 2건</option>
+          <option value="all">업무 데이터 불러오는 중</option>
         </select>
         <select id="sort-select" onchange="renderTaskList()" class="h-9 rounded-xl border border-[#DDE3EA] bg-white px-3 text-[12px] font-medium outline-none">
           <option value="risk">우선순위순</option>
@@ -1100,7 +1097,7 @@ function saveGraphDemo(){
 }
 function renderPriorityOverview(){
   const ids=Object.keys(TASKS).sort((a,b)=>TASKS[b].risk-TASKS[a].risk).slice(0,5);
-  document.getElementById('priority-overview').innerHTML=`<div class="flex flex-wrap items-center justify-between gap-2"><div><h2 class="text-[16px] font-bold">전체 우선순위 TOP 5</h2><p class="mt-1 text-[11px] text-[#8B95A1]">전체 프로젝트의 세부 업무 기준 · 선택하면 상세 내용을 확인할 수 있어요.</p></div><button onclick="showAllTasks()" class="text-[12px] font-bold text-[#3182F6]">전체 8건 보기 →</button></div><div class="mt-4 grid sm:grid-cols-2 xl:grid-cols-5 gap-2">${ids.map((id,i)=>{const t=TASKS[id];return `<button onclick="openPriorityTask('${id}')" aria-pressed="${state.task===id}" class="text-left rounded-2xl border ${state.task===id?'border-[#4F6EF7] bg-[#F2F7FF]':'border-[#EEF0F3] bg-white'} p-3"><div class="flex items-center justify-between gap-1"><span class="text-[11px] font-bold text-[#8B95A1]">${i+1}위</span><span class="text-[10px] font-bold rounded-full px-2 py-1 ${riskBadge(t.risk)}">우선순위 ${priorityLabel(t)}</span></div><div class="mt-2 text-[10px] text-[#8B95A1]">${projectForTask(id).name}</div><div class="mt-1 text-[13px] font-bold">${t.name}</div><div class="mt-2 text-[10px] text-[#6B7684] flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">schedule</span>${t.deadline}</div></button>`;}).join('')}</div>`;
+  document.getElementById('priority-overview').innerHTML=`<div class="flex flex-wrap items-center justify-between gap-2"><div><h2 class="text-[16px] font-bold">전체 우선순위 TOP 5</h2><p class="mt-1 text-[11px] text-[#8B95A1]">전체 프로젝트의 세부 업무 기준 · 선택하면 상세 내용을 확인할 수 있어요.</p></div><button onclick="showAllTasks()" class="text-[12px] font-bold text-[#3182F6]">전체 ${Object.keys(TASKS).length}건 보기 →</button></div><div class="mt-4 grid sm:grid-cols-2 xl:grid-cols-5 gap-2">${ids.map((id,i)=>{const t=TASKS[id];return `<button onclick="openPriorityTask('${id}')" aria-pressed="${state.task===id}" class="text-left rounded-2xl border ${state.task===id?'border-[#4F6EF7] bg-[#F2F7FF]':'border-[#EEF0F3] bg-white'} p-3"><div class="flex items-center justify-between gap-1"><span class="text-[11px] font-bold text-[#8B95A1]">${i+1}위</span><span class="text-[10px] font-bold rounded-full px-2 py-1 ${riskBadge(t.risk)}">우선순위 ${priorityLabel(t)}</span></div><div class="mt-2 text-[10px] text-[#8B95A1]">${projectForTask(id).name}</div><div class="mt-1 text-[13px] font-bold">${t.name}</div><div class="mt-2 text-[10px] text-[#6B7684] flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">schedule</span>${t.deadline}</div></button>`;}).join('')}</div>`;
 }
 function clearTypeFilter(){state.filter=null;document.querySelectorAll('.filter-btn').forEach(b=>b.className='filter-btn h-9 px-3 rounded-xl border border-[#DDE3EA] bg-white text-[12px] font-medium');}
 function showAllTasks(){clearTypeFilter();state.project='all';document.getElementById('sort-select').value='risk';render();}
