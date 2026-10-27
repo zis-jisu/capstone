@@ -46,6 +46,12 @@ class AgentChatTest(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True):
             self.assertIsNone(_authorize("Basic " + token))
 
+    def test_accepts_non_ascii_demo_basic_auth(self):
+        token = base64.b64encode("김지수:한글-비밀번호".encode("utf-8")).decode()
+        env = {"DEMO_USERNAME": "김지수", "DEMO_PASSWORD": "한글-비밀번호"}
+        with patch.dict(os.environ, env, clear=True):
+            self.assertIsNone(_authorize("Basic " + token))
+
     def test_rejects_unauthorized_request(self):
         with patch.dict(os.environ, {"API_ACCESS_TOKEN": "expected"}, clear=True):
             with self.assertRaises(HTTPException) as raised:

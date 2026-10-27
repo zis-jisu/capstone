@@ -947,7 +947,10 @@ async function sendAgentQuestion(){
  card.append(label,answer,source);box.append(question,card);input.value='';input.disabled=true;button.disabled=true;box.scrollTop=box.scrollHeight;
  try{
   const response=await fetch('/api/chat',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q,task_id:taskId,tasks,history:agentChatHistory.slice(-6)})});
-  const result=await response.json();if(!response.ok)throw Error(result.detail||'질문 처리에 실패했습니다.');
+  const raw=await response.text();let result={};
+  if(raw){try{result=JSON.parse(raw);}catch(_){if(response.ok)throw Error('서버 응답 형식을 확인할 수 없습니다.');}}
+  if(!response.ok)throw Error(result.detail||(response.status>=500?'서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.':'질문 처리에 실패했습니다.'));
+  if(!result.answer)throw Error('Agent 응답이 비어 있습니다.');
   answer.textContent=result.answer;agentChatHistory.push({role:'user',content:q},{role:'assistant',content:result.answer});agentChatHistory=agentChatHistory.slice(-8);
  }catch(err){answer.textContent='오류: '+(err.message||'질문 처리에 실패했습니다.');}
  finally{input.disabled=false;button.disabled=false;input.focus();box.scrollTop=box.scrollHeight;}

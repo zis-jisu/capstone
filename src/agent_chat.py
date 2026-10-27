@@ -54,6 +54,11 @@ def _basic_credentials(authorization: str) -> tuple[str, str] | None:
     return (username, password) if separator else None
 
 
+def _secure_compare(left: str, right: str) -> bool:
+    """Use constant-time comparison without compare_digest's ASCII-only str limit."""
+    return secrets.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+
+
 def _authorize(authorization: str | None):
     """Accept the existing API bearer token or Railway demo Basic auth."""
     bearer = os.getenv("API_ACCESS_TOKEN", "")
@@ -64,14 +69,14 @@ def _authorize(authorization: str | None):
 
     if bearer and authorization:
         expected = "Bearer " + bearer
-        if secrets.compare_digest(authorization, expected):
+        if _secure_compare(authorization, expected):
             return
 
     credentials = _basic_credentials(authorization or "")
     if credentials and demo_username and demo_password:
         username, password = credentials
-        if (secrets.compare_digest(username, demo_username)
-                and secrets.compare_digest(password, demo_password)):
+        if (_secure_compare(username, demo_username)
+                and _secure_compare(password, demo_password)):
             return
     raise HTTPException(401, "Unauthorized", headers={"WWW-Authenticate": "Basic, Bearer"})
 
