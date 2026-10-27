@@ -75,7 +75,9 @@
       const prereqs = [...new Set(evs.map(e => e.prerequisite).filter(Boolean))];
       const depTitles = deps.filter(e => e.source_id === id).map(e => taskMap.get(e.target_id)?.title).filter(Boolean);
       const caution = prereqs.length ? prereqs.join(' · ') : 'Slack 근거에서 별도 선행조건이 확인되지 않았습니다.';
-      const deadline = t.deadline_text || (t.deadline_at ? String(t.deadline_at).slice(0,16).replace('T',' ') : '미정');
+      const rawDue=t.deadline_at||t.due_at;
+      const preciseDue=rawDue && !Number.isNaN(Date.parse(rawDue)) ? new Date(rawDue).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}) : null;
+      const deadline=preciseDue || t.deadline_text || '미정';
       const recent = evs.length ? evs[evs.length - 1].slack_ts : '0';
       TASKS[id] = {
         name: html(t.title), sourceName:String(t.title || ''), status: html(statusText(t.status)), risk:null, deadline:html(deadline), updated:Number(recent),
@@ -223,7 +225,11 @@
       const selected=ordered.find(row=>row.id===selectedTaskId);
       const cards=ordered.map(({id,task})=>{
         const st=style(task);
-        return '<button type="button" data-flow-task-id="'+esc(id)+'" aria-pressed="'+String(id===selectedTaskId)+'" class="w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors '+(id===selectedTaskId?'border-[#5D6CFF] bg-[#F3F5FF]':'border-[#E8ECF1] bg-white hover:border-[#B0BEFF]')+'"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style="background:'+st.bg+';color:'+st.fg+'"><span class="material-symbols-outlined text-[18px]">'+st.icon+'</span></span><span class="min-w-0 flex-1"><span class="block text-[13px] font-semibold text-[#191F28]">'+esc(task.name)+'</span>'+(['active','waiting'].includes(status(task))&&task.deadline&&task.deadline!=='미정'?'<span class="mt-1 block text-[11px] text-[#6B7684]">마감 '+esc(task.deadline)+'</span>':'')+'</span><span class="shrink-0 text-[11px] font-bold" style="color:'+st.fg+'">'+esc(st.label)+'</span><span class="material-symbols-outlined shrink-0 text-[17px] text-[#8894A7]">chevron_right</span></button>';
+        const activeOrWaiting=['active','waiting'].includes(status(task));
+        const rawDeadline=String(task.deadline||'').trim();
+        const hasDeadline=rawDeadline&&!['미정','마감일 미확인','미확인','없음','null'].includes(rawDeadline);
+        const deadlineLabel=activeOrWaiting?(hasDeadline?'마감 '+esc(rawDeadline):'마감 미정'):'';
+        return '<button type="button" data-flow-task-id="'+esc(id)+'" aria-pressed="'+String(id===selectedTaskId)+'" class="w-full flex flex-wrap sm:flex-nowrap items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors '+(id===selectedTaskId?'border-[#5D6CFF] bg-[#F3F5FF]':'border-[#E8ECF1] bg-white hover:border-[#B0BEFF]')+'"><span class="shrink-0 inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-[11px] font-bold" style="background:'+st.bg+';color:'+st.fg+';border-color:'+st.fg+'40">'+esc(st.label)+'</span><span class="min-w-0 flex-1 text-[13px] font-semibold text-[#191F28]">'+esc(task.name)+'</span>'+(activeOrWaiting?'<span class="shrink-0 text-[11px] font-medium text-[#6B7684] whitespace-nowrap">'+deadlineLabel+'</span>':'')+'<span class="material-symbols-outlined shrink-0 text-[17px] text-[#8894A7]">chevron_right</span></button>';
       }).join('')||'<div class="p-3 text-[12px] text-[#8B95A1]">해당 유형의 Task가 없습니다.</div>';
       return '<div class="flex flex-wrap items-center justify-between gap-2"><div><p class="text-[11px] text-[#8B95A1]">선택한 Work · Task 목록</p><h3 class="mt-1 text-[17px] font-bold">'+esc(item.work.name)+'</h3></div><span class="text-[12px] text-[#6B7684]">완료 '+item.done+'/'+item.tasks.length+'</span></div>'+
         '<div class="mt-4 space-y-2">'+cards+'</div>'+
