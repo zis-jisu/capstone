@@ -458,12 +458,16 @@
     :actor==='김지수'&&mode!=='approved'&&mode!=='error'&&mode!=='checking'
     ?{icon:'inventory_2',tag:'인수 내역 없음',title:'아직 인수받은 업무가 없어요',description:'김지수님이 다른 구성원에게서 승인받아 인수한 업무가 없습니다.'}
     :configs[mode]||configs.empty;
-   gate.innerHTML=(mode==='checking'?'<div class="mx-auto h-20 w-44 flex items-center justify-center"><img src="/logo.png" alt="LINK-ing 로딩 중" class="w-full h-full object-contain animate-pulse" /></div><div class="mt-3 flex justify-center items-center gap-2 text-[#3182F6]"><span class="material-symbols-outlined animate-spin">progress_activity</span><span class="text-[13px] font-bold">업무를 불러오는 중...</span></div>':'<div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F2F7FF] text-[#3182F6]"><span class="material-symbols-outlined text-[30px]">'+config.icon+'</span></div>')+
-   '<div class="mt-5"><span class="inline-flex rounded-full bg-[#F2F7FF] px-3 py-1.5 text-[11px] font-bold text-[#1B64DA]">'+config.tag+'</span></div>'+
-   '<h2 class="mt-4 text-[22px] font-bold text-[#191F28]">'+config.title+'</h2>'+
-   '<p class="mx-auto mt-3 max-w-[470px] text-[13px] leading-6 text-[#6B7684]">'+config.description+'</p>'+
-   '<div class="mt-7"><button id="handover-gate-refresh" class="rounded-xl border border-[#DDE3EA] bg-white px-5 py-3 text-[13px] font-bold text-[#4E5968]">승인 상태 새로고침</button></div>';
-   el('handover-gate-refresh').onclick=()=>refreshGate();
+   if(mode==='checking'){
+    gate.innerHTML='<div role="status" aria-live="polite" class="flex min-h-32 items-center justify-center gap-3 text-[16px] font-semibold text-[#4F6EF7]"><span class="material-symbols-outlined animate-spin text-[27px]">progress_activity</span><span>업무 불러오는 중...</span></div>';
+   }else{
+    gate.innerHTML='<div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F2F7FF] text-[#3182F6]"><span class="material-symbols-outlined text-[30px]">'+config.icon+'</span></div>'+
+     '<div class="mt-5"><span class="inline-flex rounded-full bg-[#F2F7FF] px-3 py-1.5 text-[11px] font-bold text-[#1B64DA]">'+config.tag+'</span></div>'+
+     '<h2 class="mt-4 text-[22px] font-bold text-[#191F28]">'+config.title+'</h2>'+
+     '<p class="mx-auto mt-3 max-w-[470px] text-[13px] leading-6 text-[#6B7684]">'+config.description+'</p>'+
+     '<div class="mt-7"><button id="handover-gate-refresh" class="rounded-xl border border-[#DDE3EA] bg-white px-5 py-3 text-[13px] font-bold text-[#4E5968]">승인 상태 새로고침</button></div>';
+    el('handover-gate-refresh').onclick=()=>refreshGate();
+   }
   }
   const header=el('header-kicker');
   if(header&&actor!=='팀장')header.textContent='인수받은 업무';
