@@ -501,7 +501,7 @@
       while(true){
         const {done,value}=await reader.read();if(done)break;
         buffer+=decoder.decode(value,{stream:true});
-        const lines=buffer.split('\\n');buffer=lines.pop()||'';
+        const lines=buffer.split('\n');buffer=lines.pop()||'';
         for(const line of lines){
           if(!line.trim())continue;
           const info=JSON.parse(line);final=info;renderStatus(info);
@@ -551,8 +551,8 @@
   const originalPrepare=window.confirmSenderExport;
   if(typeof originalPrepare==='function')window.confirmSenderExport=function(...args){
     const ret=originalPrepare.apply(this,args);
-    if(window.senderDraft?.confirmedAt){
-      window.refreshMlPriorities(window.senderDraft.owner).catch(e=>{
+    if(typeof senderDraft!=='undefined' && senderDraft?.confirmedAt){
+      window.refreshMlPriorities(senderDraft.owner).catch(e=>{
         if(typeof window.toast==='function')window.toast('인수인계 준비 후 우선순위 산출 실패: '+e.message);
       });
     }
