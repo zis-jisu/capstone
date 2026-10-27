@@ -8,7 +8,7 @@ const html=fs.readFileSync('frontend/index.html','utf8');
  const requestCode=admin.slice(admin.indexOf(' requestImportApproval=async function(){'),admin.indexOf(' // Header actions'));
  const rows=[{workId:'W1',project:'One',tasks:['A','B']},{workId:'W2',project:'Two',tasks:['C']},{workId:'W3',project:'Three',tasks:['D']}];
  for(const chosen of [1,2]){
-  const posts=[],context={IMPORT_DATA:{'김지수':rows},importState:{person:'김지수',selected:new Set(chosen===1?['W1::A','W1::B']:['W1::A','W1::B','W2::C'])},PERSON_IDS:{'원이정':'WON','김지수':'KIM'},actor:'원이정',importWorkKeys:g=>g.tasks.map(t=>g.workId+'::'+t),el:()=>({disabled:false}),setActiveWorkIds(ids){context.active=ids},load:async()=>[],api:async(path,method,data)=>posts.push(data),updateInboxBadge(){},renderImportFlow(){},refreshGate:async()=>{},message(){}};
+  const posts=[],context={IMPORT_DATA:{'김지수':rows},importState:{person:'김지수',selected:new Set(chosen===1?['W1::A','W1::B']:['W1::A','W1::B','W2::C'])},PERSON_IDS:{'원이정':'WON','김지수':'KIM'},actor:'원이정',catalogLoading:false,importWorkKeys:g=>g.tasks.map(t=>g.workId+'::'+t),el:()=>({disabled:false}),setActiveWorkIds(ids){context.active=ids},load:async()=>[],api:async(path,method,data)=>posts.push(data),updateInboxBadge(){},renderImportFlow(){},refreshGate:async()=>{},message(){}};
   vm.runInNewContext(selectedCode+requestCode,context);await context.requestImportApproval();
   assert.equal(posts.length,chosen);assert.deepEqual(posts.map(x=>x.work_id),chosen===1?['W1']:['W1','W2']);
  }
@@ -16,6 +16,18 @@ const html=fs.readFileSync('frontend/index.html','utf8');
  const gateCode=admin.slice(admin.indexOf(' async function refreshGate(){'),admin.indexOf(' function updateSidebarIdentity'));
  let loaded;const gate={actor:'원이정',PERSON_IDS:{'원이정':'WON'},showGate(){},activeWorkIds:()=>['W2'],setActiveWorkIds(){},load:async()=>[{workId:'W1',requesterId:'WON',status:'approved'},{workId:'W2',requesterId:'WON',status:'approved'}],window:{loadApprovedHandovers:async ids=>loaded=ids},PROJECTS:[{id:'W2'}],render(){},message(e){throw Error(e)}};
  vm.runInNewContext(gateCode,gate);await gate.refreshGate();assert.equal(loaded.length,1);assert.equal(loaded[0],'W2');
+ // Cached Work cards remain available while the latest catalog loads; stale responses cannot overwrite a new source.
+ const catalogCode=admin.slice(admin.indexOf(' const catalogCache='),admin.indexOf(' async function received()'));
+ let resolveCatalog;
+ const nodes=new Map();
+ const node=id=>{if(!nodes.has(id))nodes.set(id,{classList:{remove(){},add(){}},textContent:'',innerHTML:'',disabled:false});return nodes.get(id)};
+ const catalog={AbortController,setTimeout,clearTimeout,PERSON_IDS:{'김지수':'KIM'},IMPORT_DATA:{'김지수':[{workId:'W1',project:'One',tasks:['A']}]},importState:{selected:new Set()},window:{},safe:String,el:node,selectImportPerson(name){catalog.importState.person=name},importWorkKeys:g=>g.tasks.map(t=>g.workId+'::'+t),renderImportTasks(){},renderImportFlow(){},fetch:()=>new Promise(r=>resolveCatalog=r)};
+ vm.runInNewContext(catalogCode,catalog);const pendingCatalog=catalog.selectCatalogPerson('김지수');
+ assert.equal(catalog.IMPORT_DATA['김지수'].length,1);assert.equal(node('import-action-btn').disabled,true);
+ resolveCatalog({ok:true,json:async()=>({works:[{work_id:'W1',title:'One',tasks:[{title:'A'}]},{work_id:'W2',title:'Two',tasks:[{title:'B'}]}]})});await pendingCatalog;
+ assert.equal(catalog.IMPORT_DATA['김지수'].length,2);assert.equal(node('import-action-btn').disabled,false);assert.equal(node('import-catalog-status').textContent,'Work 2개');
+ catalog.fetch=async()=>({ok:false,status:503});await catalog.selectCatalogPerson('김지수');
+ assert.equal(catalog.IMPORT_DATA['김지수'].length,2);assert(node('import-catalog-status').innerHTML.includes('다시 불러오기'));
  // One press executes approval; repeated clicks during a request do not duplicate it.
  const verify=admin.slice(admin.indexOf(' const approvalInFlight='),admin.indexOf('  async function decide(id,status)'));
  let count=0,finish;const verifyContext={el:()=>({querySelectorAll:()=>[]}),decide:async()=>{count++;await new Promise(r=>finish=r)}};

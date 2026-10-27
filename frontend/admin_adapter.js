@@ -215,22 +215,42 @@
  function selectedImportWorks(){
   return (IMPORT_DATA[importState.person]||[]).filter(g=>g.workId&&g.tasks.length&&importWorkKeys(g).every(key=>importState.selected.has(key)));
  }
+ const catalogCache=new Map();
+ let catalogRequest=0,catalogController=null,catalogLoading=false;
  async function selectCatalogPerson(name){
-  const sourceId=PERSON_IDS[name];
-  IMPORT_DATA[name]=[];
+  const sourceId=PERSON_IDS[name],requestId=++catalogRequest;
+  catalogController?.abort();
+  const controller=new AbortController();catalogController=controller;catalogLoading=true;
+  const cached=catalogCache.get(sourceId)||(IMPORT_DATA[name]||[]).filter(work=>work.workId);
+  IMPORT_DATA[name]=cached;
   selectImportPerson(name);
-  const holder=el('import-tasks');if(holder)holder.textContent='업무 목록을 확인하고 있어요.';
+  const holder=el('import-tasks'),status=el('import-catalog-status'),action=el('import-action-btn');
+  if(action)action.disabled=true;
+  if(!cached.length&&el('import-person-label'))el('import-person-label').textContent=name+'님의 업무';
+  if(status){status.textContent=cached.length?'최신 Work 목록을 확인하고 있어요.':'Work 목록을 불러오고 있어요.';status.classList.remove('hidden');}
+  if(!cached.length&&holder)holder.innerHTML='<div class="flex min-h-[190px] items-center justify-center gap-2 text-[13px] text-[#6B7684]" role="status"><span class="material-symbols-outlined animate-spin">progress_activity</span>Work 목록 조회 중</div>';
+  const timeout=setTimeout(()=>controller.abort(),12000);
   try{
-   const res=await fetch('/api/demo/handover-catalog?source_person_id='+encodeURIComponent(sourceId),{credentials:'same-origin',cache:'no-store'});
+   const res=await fetch('/api/demo/handover-catalog?source_person_id='+encodeURIComponent(sourceId),{credentials:'same-origin',cache:'no-store',signal:controller.signal});
    if(!res.ok)throw new Error('업무 목록 조회 실패 (HTTP '+res.status+')');
    const data=await res.json();
+   const works=(data.works||[]).map(w=>({workId:w.work_id,project:w.title,tasks:(w.tasks||[]).map(t=>t.title)}));
+   catalogCache.set(sourceId,works);
    window.handoverWorkTitles={...(window.handoverWorkTitles||{}),...Object.fromEntries((data.works||[]).map(w=>[w.work_id,w.title]))};
-   IMPORT_DATA[name]=(data.works||[]).map(w=>({workId:w.work_id,project:w.title,tasks:w.tasks.map(t=>t.title)}));
-   if(importState.person===name){renderImportTasks();renderImportFlow();}
+   if(requestId!==catalogRequest||importState.person!==name)return;
+   IMPORT_DATA[name]=works;
+   const validKeys=new Set(works.flatMap(importWorkKeys));
+   importState.selected=new Set([...importState.selected].filter(key=>validKeys.has(key)));
+   catalogLoading=false;
+   renderImportTasks();renderImportFlow();
+   if(status){status.textContent='Work '+works.length+'개';status.classList.remove('hidden');}
+   if(action)action.disabled=false;
   }catch(error){
-   if(importState.person===name&&holder)holder.textContent='업무 목록을 불러오지 못했어요. 담당자를 다시 선택해 주세요.';
-   message(error.message);
-  }
+   if(requestId!==catalogRequest||importState.person!==name)return;
+   const detail=error.name==='AbortError'?'업무 목록 조회 시간이 초과됐어요. 다시 시도해 주세요.':error.message;
+   if(status){status.innerHTML='<span>'+safe(detail)+'</span> <button id="import-catalog-retry" type="button" class="ml-2 font-bold text-[#3182F6]">다시 불러오기</button>';status.classList.remove('hidden');el('import-catalog-retry').onclick=()=>selectCatalogPerson(name);}
+   if(!cached.length&&holder)holder.innerHTML='<div class="flex min-h-[190px] items-center justify-center text-[13px] text-[#8B95A1]">Work 목록을 불러오지 못했어요.</div>';
+  }finally{clearTimeout(timeout);}
  }
  async function received(){
   if(actor==='팀장'){
@@ -343,6 +363,8 @@
  const originalOpen=openImport;
  openImport=function(){
   if(actor==='김지수'||actor==='팀장')return inbox();
+  catalogRequest++;catalogController?.abort();catalogLoading=false;
+  const catalogStatus=el('import-catalog-status');if(catalogStatus)catalogStatus.classList.add('hidden');
   originalOpen();
   importState.person=null;importState.selected=new Set();importState.step=1;importState.approved=false;
   renderImportPeople();renderImportTasks();renderImportFlow();
@@ -359,10 +381,12 @@
   previousFlow();
   const name=el('import-action-title'),summary=el('import-selection-summary'),btn=el('import-action-btn'),slack=el('slack-access-panel');
   if(slack)slack.classList.add('hidden');
+  btn.classList.add('disabled:opacity-50','disabled:cursor-not-allowed');
   if(importState.step===1){name.textContent='인수인계 승인 요청';btn.textContent='선택 업무 승인 요청';btn.onclick=requestImportApproval;}
   else {name.textContent='승인 대기';summary.textContent=importState.person+'님이 승인하면 선택한 업무만 이어받을 수 있어요.';btn.textContent='요청 상태 확인';btn.onclick=()=>{closeImport();received()};}
  };
  requestImportApproval=async function(){
+  if(catalogLoading)return message('Work 목록 확인 후 승인 요청을 보내주세요.');
   const requesterId=PERSON_IDS[actor],sourceId=PERSON_IDS[importState.person];
   const selected=selectedImportWorks();
   if(!requesterId||!sourceId||requesterId===sourceId)return message('인계자와 인수자를 확인해 주세요.');

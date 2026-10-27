@@ -293,6 +293,7 @@ body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-seri
             </div>
             <button onclick="toggleAllImportTasks()" id="import-all-btn" class="hidden text-[11px] font-bold text-[#3182F6]">전체 선택</button>
           </div>
+          <div id="import-catalog-status" class="hidden mb-2 text-[12px] text-[#6B7684]" role="status" aria-live="polite"></div>
           <div id="import-tasks" class="rounded-2xl border border-[#EEF0F3] bg-[#F8F9FA] p-3 min-h-[220px]">
             <div class="h-[190px] flex items-center justify-center text-[12px] text-[#8B95A1]">왼쪽에서 담당자를 선택하세요.</div>
           </div>
@@ -770,6 +771,8 @@ function renderImportTasks(){
  if(!importState.person){el.innerHTML='<div class="h-[190px] flex items-center justify-center text-[12px] text-[#8B95A1]">왼쪽에서 담당자를 선택하세요.</div>';allBtn.classList.add('hidden');return;}
  label.textContent=importState.person+'님의 업무';allBtn.classList.remove('hidden');
  const groups=IMPORT_DATA[importState.person]||[];
+ label.textContent=importState.person+'님의 업무 · Work '+groups.length+'개';
+ if(!groups.length){el.innerHTML='<div class="flex min-h-[190px] items-center justify-center text-[13px] text-[#8B95A1]">등록된 Work가 없습니다.</div>';allBtn.classList.add('hidden');updateImportSummary();return;}
  el.innerHTML='<div class="px-1 mb-3 text-[11px] text-[#8B95A1]">Work를 선택하면 해당 업무의 세부 Task가 함께 포함돼요.</div><div class="space-y-2">'+groups.map((g,i)=>{
  const on=importWorkKeys(g).every(k=>importState.selected.has(k));
  return `<label class="flex items-center gap-3 rounded-2xl border ${on?'border-[#BFD4FF] bg-[#F2F7FF]':'border-[#E5E8EB] bg-white'} px-4 py-4 cursor-pointer"><input type="checkbox" ${on?'checked':''} onchange="toggleImportWork(${i})" class="w-4 h-4 accent-[#3182F6]"/><div class="min-w-0 flex-1"><div class="text-[14px] font-bold">${escSvg(g.project)}</div><div class="mt-1 text-[11px] text-[#8B95A1]">세부 Task ${g.tasks.length}건 포함</div></div><span class="px-2 py-1 rounded-full bg-[#F2F4F6] text-[10px] font-bold text-[#6B7684]">Work</span></label>`;
@@ -1265,7 +1268,7 @@ setMainView=function(view){if(senderEditing){toast('수정을 저장하거나 �
 
 render();
 </script>
-<script src="/demo_adapter.js?v=20261027-contacts-department"></script>
-<script src="/admin_adapter.js?v=20261027-contacts-department"></script>
+<script src="/demo_adapter.js?v=20261027-work-catalog-loading"></script>
+<script src="/admin_adapter.js?v=20261027-work-catalog-loading"></script>
 </body>
 </html>

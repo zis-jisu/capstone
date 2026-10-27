@@ -678,8 +678,10 @@ def slack_signout(_=Depends(demo_auth)):
 @app.get('/api/demo/handover-catalog')
 def demo_handover_catalog(source_person_id: str, _=Depends(demo_auth), actor=Depends(slack_actor)):
     # Request selection needs Work/Task titles before approval, never Event text or raw Slack.
-    from src.handover_catalog import handover_catalog
-    snapshot = _hybrid_frontend_snapshot()
+    from src.handover_catalog import handover_catalog, load_catalog_snapshot
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,90}', source_person_id):
+        raise HTTPException(422, 'Invalid handover source person')
+    snapshot = load_catalog_snapshot(_frontend_store(), SupabaseStore(), source_person_id, _overlay_original_work)
     if source_person_id not in {p['person_id'] for p in snapshot['persons']}:
         raise HTTPException(404, 'Unknown handover source person')
     return {'source_person_id': source_person_id, 'works': handover_catalog(snapshot, source_person_id)}
