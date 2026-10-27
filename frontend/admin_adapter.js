@@ -95,7 +95,7 @@
     if(currentUserRole!=='admin'||!token)return;
     const button=$('admin-sync-button'),output=$('admin-sync-result');
     const days=Number($('admin-sync-days')?.value||90);
-    button.disabled=true;output.textContent=`WORK-00020 · 최근 ${days}일 Slack 메시지 수집 시작…`;
+    window.lastWork20Sync=null;button.disabled=true;output.textContent=`WORK-00020 · 최근 ${days}일 Slack 메시지 수집 시작…`;
     try {
       const response=await fetch('/api/demo/slack-link',{method:'POST',credentials:'same-origin',headers:{'X-Admin-Token':token,'Content-Type':'application/json'},body:JSON.stringify({work_id:'WORK-00020',days})});
       if(!response.ok){
@@ -113,7 +113,7 @@
           if(!line.trim())continue;
           const event=JSON.parse(line);
           if(event.sync)window.lastWork20Sync=event.sync;
-          if(event.status==='failed')throw new Error((event.sync?.saved?'Slack 저장 완료 · ':'')+(event.error||'연동 실패'));
+          if(event.status==='failed'){const stages={database:'DB 조회',collect:'Slack 수집',extract:'업무 추출·저장',graph:'그래프 검증',training:'ML 학습'};throw new Error((event.sync?.saved?'Slack 동기화 완료 · ':'')+(stages[event.stage]?stages[event.stage]+' 단계 · ':'')+(event.error||'연동 실패'));}
           if(event.status==='completed')completed=true;
           if(event.status==='running'&&event.stage!=='heartbeat')output.textContent=event.message||(event.stage==='training'?`ML 모델 학습 중 · ${event.progress_percent||0}%`:'WORK-00020 처리 중…');
         }

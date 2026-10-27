@@ -3,6 +3,7 @@ Copy into src/demo_frontend.py in the slack branch; do not overwrite src/fronten
 """
 import os
 import secrets
+import logging
 from pathlib import Path
 
 from fastapi import Depends, HTTPException, Request
@@ -365,7 +366,9 @@ async def demo_slack_link(body: WorkSyncRequest = WorkSyncRequest(), _=Depends(a
     queue = asyncio.Queue()
 
     async def execute():
+        from src.sync_errors import sync_error_detail, exception_leaves
         saved = None
+        stage = 'database'
         try:
             store = SupabaseStore()
             before = await asyncio.to_thread(store.snapshot)
@@ -373,18 +376,22 @@ async def demo_slack_link(body: WorkSyncRequest = WorkSyncRequest(), _=Depends(a
             threads = evidence_threads(scope)
             await queue.put({'status': 'running', 'stage': 'collect', 'progress_percent': 0,
                              'message': f'WORK-00020 · 최근 {body.days}일 · {len(threads)}개 근거 스레드 MCP 수집 중'})
+            stage = 'collect'
             raw = await asyncio.wait_for(_call_slack_mcp('collect_slack_work_threads',
                 {'work_id': body.work_id, 'threads': threads, 'days': body.days}), timeout=300)
             await queue.put({'status': 'running', 'stage': 'extract', 'progress_percent': 0,
                              'message': f"Slack {len(raw['records'])}건 수집 완료 · 변경 확인 및 Event/Task/Work 처리 중"})
+            stage = 'extract'
             saved = await asyncio.to_thread(apply_collection, store, before, scope, raw, threads)
             await queue.put({'status': 'running', 'stage': 'saved', 'sync': saved,
                              'message': f"WORK-00020 동기화 확인 · 메시지 {saved['messages']}건 / 변경 {saved['changed_messages']}건 · 그래프 검증 중"})
             # Confirm the original-table RPC actually contains the synced Work before ML starts.
+            stage = 'graph'
             from scripts.export_ml_rpc import fetch_graph
             graph = await asyncio.to_thread(fetch_graph)
             if not any(node.get('id') == body.work_id for node in graph['nodes']):
                 raise ValueError('WORK-00020 is missing from the ML graph RPC')
+            stage = 'training'
             training = await asyncio.to_thread(ml_bridge.stream_training)
             buffer, completed = '', False
             async for chunk in training.body_iterator:
@@ -408,13 +415,14 @@ async def demo_slack_link(body: WorkSyncRequest = WorkSyncRequest(), _=Depends(a
                 raise RuntimeError('ML training did not confirm completion')
             await queue.put({'status': 'completed', 'stage': 'completed', 'sync': saved,
                              'message': 'WORK-00020 Slack 동기화 및 ML 학습 완료'})
-        except HTTPException as exc:
-            await queue.put({'status': 'failed', 'error': str(exc.detail), 'sync': saved})
-        except (ValueError, TimeoutError) as exc:
-            await queue.put({'status': 'failed', 'error': str(exc) or 'Slack MCP collection timed out', 'sync': saved})
-        except Exception:
-            # Do not return third-party response bodies, raw Slack text, or keys.
-            await queue.put({'status': 'failed', 'error': 'Slack 동기화 또는 ML 처리 실패. 서버 로그와 설정을 확인하세요.', 'sync': saved})
+        except Exception as exc:
+            detail = sync_error_detail(exc, stage)
+            kinds = ','.join(sorted({type(e).__name__ for e in exception_leaves(exc)}))
+            import traceback
+            frames = ';'.join(Path(frame.filename).name + ':' + str(frame.lineno) + ':' + frame.name
+                              for leaf in exception_leaves(exc) for frame in traceback.extract_tb(leaf.__traceback__))
+            logging.getLogger(__name__).error('WORK20_SYNC stage=%s exceptions=%s detail=%s frames=%s', stage, kinds, detail, frames)
+            await queue.put({'status': 'failed', 'stage': stage, 'error': detail, 'sync': saved})
         finally:
             await queue.put(None)
 
@@ -529,16 +537,23 @@ async def _call_slack_mcp(tool_name, arguments):
         async with ClientSession(reader,writer) as session:
             await session.initialize()
             result=await session.call_tool(tool_name,arguments)
-            if result.isError:
-                raise HTTPException(502,'MCP collection failed')
-            content=result.structuredContent
-            if content is None:
-                content=json.loads(result.content[0].text)
-            if isinstance(content,dict) and 'result' in content and isinstance(content['result'],dict):
-                content=content['result']
-            if not isinstance(content,dict) or not isinstance(content.get('records'),list):
-                raise HTTPException(502,'Unexpected MCP response')
-            return content
+    # Parse after the AnyIO task-group contexts have closed: raising inside them
+    # can wrap a useful HTTPException in ExceptionGroup and obscure its cause.
+    if result.isError:
+        from src.sync_errors import sync_error_detail
+        detail = ' '.join(block.text for block in result.content if getattr(block, 'type', None) == 'text')
+        safe = sync_error_detail(RuntimeError(detail), 'collect')
+        if '서버의 WORK20_SYNC' in safe:
+            safe = 'MCP collection failed'
+        raise HTTPException(502, safe)
+    content = result.structuredContent
+    if content is None:
+        content=json.loads(result.content[0].text)
+    if isinstance(content,dict) and 'result' in content and isinstance(content['result'],dict):
+        content=content['result']
+    if not isinstance(content,dict) or not isinstance(content.get('records'),list):
+        raise HTTPException(502,'Unexpected MCP response')
+    return content
 
 
 async def _collect_via_mcp(person_id, days=90):

@@ -189,6 +189,23 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(mcp.call_args.args[1]['days'], 90)
         self.assertEqual([e['stage'] for e in events], ['collect', 'extract', 'saved', 'completed'])
 
+    def test_training_failure_reports_saved_slack_and_training_stage(self):
+        store = Mock();store.snapshot.return_value = snapshot()
+        saved = {'saved': True, 'messages': 22, 'changed_messages': 0}
+        async def training():
+            yield b'{"status":"failed"}\n'
+        with patch.dict(os.environ, {'SLACK_TOKEN': 'fake-test'}), \
+             patch.object(api, 'SupabaseStore', return_value=store), \
+             patch.object(api, '_call_slack_mcp', new_callable=AsyncMock, return_value=raw()), \
+             patch('src.work_sync.apply_collection', return_value=saved), \
+             patch('scripts.export_ml_rpc.fetch_graph', return_value={'nodes': [{'id': 'WORK-00020'}]}), \
+             patch.object(api.ml_bridge, 'stream_training', return_value=StreamingResponse(training())) as model:
+            response = self.client.post('/api/demo/slack-link')
+        final = json.loads(response.text.splitlines()[-1])
+        self.assertEqual(final['stage'], 'training')
+        self.assertTrue(final['sync']['saved'])
+        model.assert_called_once()
+
     def test_mcp_failure_never_starts_training(self):
         store = Mock();store.snapshot.return_value = snapshot()
         with patch.dict(os.environ, {'SLACK_TOKEN': 'fake-test'}), \
