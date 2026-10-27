@@ -156,12 +156,6 @@
  const PERSON_IDS={'원이정':'U0C20G9MRML','김지수':'U0C22C8M742','박서연':'U0C6WSR5275','최민준':'U0C38J2MUF4'};
  const API='/api/demo/handover-requests';
  const WORK_ID='WORK-00020', WORK_TITLE='신차 출시 캠페인 콘텐츠 현지화 및 배포 준비';
- const CASE_TASKS=[
-  ['TASK-00077','본사 캠페인 패키지 v3 변경사항 확인'],
-  ['TASK-00078','국내 사양·기술 표현 검증'],
-  ['TASK-00079','국내용 원고 제목·CTA 확정'],
-  ['TASK-00080','딜러 이미지·UTM·배포 대상 준비 및 포털 반영']
- ];
  let actor='원이정';
  // v2 resets UI-only approvals created before the priority POST/storage flow existed.
  const DEMO_MANAGER_KEY='linking_manager_ui_approvals_v2';
@@ -211,25 +205,21 @@
  }
  function closePanel(){const n=el('handover-demo-panel');if(n){n.classList.add('hidden');n.classList.remove('flex');}}
  function message(s){if(typeof toast==='function')toast(s);else alert(s);}
- function selectedWork(){return (IMPORT_DATA[importState.person]||[]).some(g=>g.project===WORK_TITLE&&g.tasks.every(t=>importState.selected.has(g.project+'::'+t)));}
- // Work titles and tasks from provided BMW synthetic Slack dataset (demo-only).
- const RELATED_PERSON_WORKS={
-  '박서연':[
-   {project:'신차 출시 캠페인 콘텐츠 현지화 및 배포 준비',tasks:['본사 원본 최신본 확인','국내 사양 및 필수 표기 검증','원고 제목 및 CTA 표현 검토','딜러 배포 자료 준비']},
-   {project:'전기차 배터리 보증 딜러 설명 자료',tasks:['경쟁사 비교·배터리 보증 초안 취합','보증 조건·기술 표현·딜러 FAQ 검토','보증·기술·딜러 검토 반영 및 설명 자료 확정','딜러 배포·질문 회수']}
-  ],
-  '최민준':[
-   {project:'딜러 고객 초청 시승 행사 성과 분석 및 후속 캠페인 선정',tasks:['딜러별 참가자·상담 전환 데이터 취합','누락 딜러·이전 행사 성과 기준 확인','성과 우수 딜러·고객군 선정','후속 캠페인 대상 확정·공유']},
-   {project:'월간 딜러 피드백 보고',tasks:['딜러 질문·불만·처리 상태 월간 취합','보증 확인 건·기술 검토 건 분류','지난 보고서 양식에 이번 달 결과 반영','월간 보고서 배포·미결 건 이월']}
-  ]
- };
- function seed(){
-  if(typeof IMPORT_DATA==='undefined')return;
-  const groups=IMPORT_DATA['김지수']||(IMPORT_DATA['김지수']=[]);
-  if(!groups.some(g=>g.project===WORK_TITLE))groups.unshift({project:WORK_TITLE,tasks:CASE_TASKS.map(x=>x[1])});
-  for(const [name,works] of Object.entries(RELATED_PERSON_WORKS)){
-   const existing=IMPORT_DATA[name]||(IMPORT_DATA[name]=[]);
-   for(const w of works)if(!existing.some(x=>x.project===w.project))existing.push({project:w.project,tasks:[...w.tasks]});
+ function selectedWork(){return (IMPORT_DATA[importState.person]||[]).some(g=>(g.workId===WORK_ID||g.project===WORK_TITLE)&&g.tasks.every(t=>importState.selected.has(g.project+'::'+t)));}
+ async function selectCatalogPerson(name){
+  const sourceId=PERSON_IDS[name];
+  IMPORT_DATA[name]=[];
+  selectImportPerson(name);
+  const holder=el('import-tasks');if(holder)holder.textContent='업무 목록을 확인하고 있어요.';
+  try{
+   const res=await fetch('/api/demo/handover-catalog?source_person_id='+encodeURIComponent(sourceId),{credentials:'same-origin',cache:'no-store'});
+   if(!res.ok)throw new Error('업무 목록 조회 실패 (HTTP '+res.status+')');
+   const data=await res.json();
+   IMPORT_DATA[name]=(data.works||[]).map(w=>({workId:w.work_id,project:w.title,tasks:w.tasks.map(t=>t.title)}));
+   if(importState.person===name){renderImportTasks();renderImportFlow();}
+  }catch(error){
+   if(importState.person===name&&holder)holder.textContent='업무 목록을 불러오지 못했어요. 담당자를 다시 선택해 주세요.';
+   message(error.message);
   }
  }
  async function received(){
@@ -250,16 +240,17 @@
   let r;try{r=(await load()).find(x=>x.id===id&&x.status==='approved'&&x.requesterId===PERSON_IDS[actor]);}
   catch(e){return message(e.message)}
   if(!r)return message('승인된 인수인계만 확인 가능합니다.');
-  showGate('approved');
+  try{await window.loadApprovedHandovers([r.workId]);}catch(error){return message(error.message);}
   closePanel();
   if(PROJECTS.some(p=>p.id===r.workId)){
+   showGate('approved');
    state.project=r.workId;state.task=PROJECTS.find(p=>p.id===r.workId).tasks.find(t=>TASKS[t]?.status!=='완료')||PROJECTS.find(p=>p.id===r.workId).tasks[0];state.filter=null;
    const select=el('project-select');if(select)select.value=r.workId;
    if(typeof setMainView==='function')setMainView('briefing');
    render();
    message('김지수에게 이어받은 WORK-00020을 표시했습니다.');
   }else{
-   panel('이어받은 업무','<div class="rounded-xl bg-[#F2F7FF] p-4 font-bold">'+safe(r.title)+'</div><div class="mt-3 space-y-3">'+CASE_TASKS.map((t,i)=>'<div class="rounded-xl border p-3"><div class="text-[11px] text-[#8B95A1]">'+safe(t[0])+' · '+(i<2?'완료':i===2?'진행 중':'대기')+'</div><div class="font-bold">'+safe(t[1])+'</div></div>').join('')+'</div><div class="mt-3 text-[12px] text-[#8B95A1]">첨부 WORK-00020 시연 데이터입니다. 현재 DB Work에 이 항목이 없습니다.</div>');
+   showGate('error');message('승인된 Work를 DB에서 찾지 못했습니다. 업무 데이터를 다시 확인해 주세요.');
   }
  }
   async function inbox(){
@@ -339,7 +330,7 @@
  const originalOpen=openImport;
  openImport=function(){
   if(actor==='김지수'||actor==='팀장')return inbox();
-  seed();originalOpen();
+  originalOpen();
   importState.person=null;importState.selected=new Set();importState.step=1;importState.approved=false;
   renderImportPeople();renderImportTasks();renderImportFlow();
  };
@@ -348,7 +339,7 @@
   const people=TEAM.filter(p=>p!==actor&&(!q||p.includes(q)));
   const holder=el('import-people');if(!holder)return;
   holder.innerHTML=people.map(p=>'<button data-team-person="'+safe(p)+'" class="w-full rounded-2xl border '+(importState.person===p?'border-[#3182F6] bg-[#F2F7FF]':'border-[#EEF0F3] bg-white')+' p-3 flex items-center gap-3 text-left"><span class="flex h-9 w-9 items-center justify-center rounded-full bg-[#E8F3FF] text-[#3182F6] font-bold">'+p.slice(0,1)+'</span><span><b class="text-[13px]">'+safe(p)+'</b><span class="block text-[11px] text-[#8B95A1]">BMW Marketing</span></span></button>').join('')||'<div class="p-3 text-[12px]">같은 팀 내 검색 결과가 없습니다.</div>';
-  holder.querySelectorAll('[data-team-person]').forEach(b=>b.onclick=()=>{seed();selectImportPerson(b.dataset.teamPerson)});
+  holder.querySelectorAll('[data-team-person]').forEach(b=>b.onclick=()=>selectCatalogPerson(b.dataset.teamPerson));
  };
  const previousFlow=renderImportFlow;
  renderImportFlow=function(){
@@ -380,7 +371,6 @@
  ['업무 선택','승인 요청','승인 확인','업무 확인'].forEach((x,i)=>{if(steps[i])steps[i].textContent=x});
  const sub=document.querySelector('#import-modal p');
  if(sub)sub.textContent='같은 팀 구성원의 Work를 선택해 인수인계를 요청합니다. 승인 전에는 업무가 전달되지 않습니다.';
- seed();
  updateInboxBadge();
  window.setInterval(updateInboxBadge,15000);
  // Completed Tasks are intentionally excluded from the operational detail list.
@@ -446,7 +436,10 @@
    const approved=records.some(r=>r.status==='approved');
    const pending=records.some(r=>r.status==='pending');
    const rejected=records.some(r=>r.status==='rejected');
-   if(approved&&verifiedMode&&authToken&&typeof window.loadVerifiedDemoData==='function')await window.loadVerifiedDemoData(authToken);
+   if(approved){
+    await window.loadApprovedHandovers(records.filter(r=>r.status==='approved').map(r=>r.workId));
+    if(!PROJECTS.length)throw new Error('승인된 Work가 DB 응답에 없습니다.');
+   }
    showGate(approved?'approved':pending?'pending':rejected?'rejected':'empty');
    if(approved&&typeof render==='function')render();
   }catch(e){showGate('error');message('승인 상태를 확인하지 못했습니다. '+e.message);}

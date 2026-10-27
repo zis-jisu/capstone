@@ -93,9 +93,9 @@
     PEOPLE.splice(0, PEOPLE.length, ...persons.map(p => p.name));
     Object.keys(IMPORT_DATA).forEach(key => delete IMPORT_DATA[key]);
     for (const p of persons) {
-      const owned = participantLinks.filter(e => e.source_id === p.person_id && e.relation === 'OWNER').map(e => e.target_id);
+      const owned = participantLinks.filter(e => e.source_id === p.person_id && ['OWNER','REVIEWER','COLLABORATOR','APPROVER'].includes(e.relation)).map(e => e.target_id);
       const wids = [...new Set(owned.map(tid => taskToWork.get(tid)).filter(Boolean))];
-      IMPORT_DATA[p.name] = wids.map(wid => ({project:workMap.get(wid)?.title || wid, tasks:owned.filter(tid => taskToWork.get(tid) === wid).map(tid => taskMap.get(tid)?.title).filter(Boolean)}));
+      IMPORT_DATA[p.name] = wids.map(wid => ({workId:wid, project:workMap.get(wid)?.title || wid, tasks:(workTasks.get(wid)||[]).map(tid => taskMap.get(tid)?.title).filter(Boolean)}));
     }
 
     // '나의 업무' uses the two separately sourced BMW spreadsheet fixtures.
@@ -224,6 +224,20 @@
     const response = await fetch('/api/demo/data',{credentials:'same-origin',cache:'no-store',headers:{'X-Handover-Access-Token':token}});
     if(!response.ok)throw new Error('권한 확인 실패 (HTTP '+response.status+')');
     attach(await response.json());
+  };
+  window.loadApprovedHandovers = async function(workIds) {
+    const response=await fetch('/api/demo/data',{credentials:'same-origin',cache:'no-store'});
+    if(!response.ok)throw new Error('승인 업무 조회 실패 (HTTP '+response.status+')');
+    const data=await response.json(), allowed=new Set(workIds);
+    const works=(data.works||[]).filter(w=>allowed.has(w.work_id));
+    const taskIds=new Set((data.edges||[]).filter(e=>e.source_type==='Work'&&allowed.has(e.source_id)&&e.relation==='HAS_TASK').map(e=>e.target_id));
+    const eventIds=new Set((data.edges||[]).filter(e=>e.source_type==='Task'&&taskIds.has(e.source_id)&&e.relation==='HAS_EVENT').map(e=>e.target_id));
+    const events=(data.events||[]).filter(e=>eventIds.has(e.event_id));
+    const sourceIds=new Set(events.map(e=>e.source_id));
+    const nodeIds=new Set([...works.map(w=>w.work_id),...taskIds,...eventIds]);
+    attach({...data,works,tasks:(data.tasks||[]).filter(t=>taskIds.has(t.task_id)),events,
+      edges:(data.edges||[]).filter(e=>nodeIds.has(e.target_id)&&(nodeIds.has(e.source_id)||e.source_type==='Person')),
+      slack_messages:(data.slack_messages||[]).filter(m=>sourceIds.has(m.message_id))});
   };
   window.reloadDemoData=()=>window.loadVerifiedDemoData('');
   fetch('/api/demo/auth/config',{credentials:'same-origin',cache:'no-store'})

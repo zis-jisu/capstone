@@ -658,6 +658,16 @@ def slack_me(_=Depends(demo_auth), identity=Depends(slack_actor)):
 def slack_signout(_=Depends(demo_auth)):
     return slack_logout()
 
+@app.get('/api/demo/handover-catalog')
+def demo_handover_catalog(source_person_id: str, _=Depends(demo_auth), actor=Depends(slack_actor)):
+    # Request selection needs Work/Task titles before approval, never Event text or raw Slack.
+    from src.handover_catalog import handover_catalog
+    snapshot = _hybrid_frontend_snapshot()
+    if source_person_id not in {p['person_id'] for p in snapshot['persons']}:
+        raise HTTPException(404, 'Unknown handover source person')
+    return {'source_person_id': source_person_id, 'works': handover_catalog(snapshot, source_person_id)}
+
+
 @app.get('/api/demo/handover-requests')
 def demo_handover_list(_=Depends(demo_auth), actor=Depends(slack_actor)):
     rows = _handover_db(params={'select': '*', 'order': 'created_at.desc', 'limit': '100'})
