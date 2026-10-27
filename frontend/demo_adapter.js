@@ -239,12 +239,22 @@
       state.project=item.work.id;
       state.task=id;
       state.detailTab='timeline';
+      // The task belongs to the active type filter; keep it selected after rendering.
+      renderTaskList();
+      state.task=id;
       renderTaskList();
       const section=root.getElementById('briefing-task-section');
-      if(section){section.style.display='grid';section.classList.remove('hidden');}
-      // renderTaskList re-creates the flow panel: use the current element, not the detached one.
+      if(section){
+        section.classList.remove('hidden');
+        section.style.setProperty('display','grid','important');
+      }
       const freshPanel=root.getElementById('work-priority-tasks');
       if(freshPanel)freshPanel.innerHTML=renderFlow(item,id);
+      // This is the full existing lower Task detail area, not the compact flow preview.
+      requestAnimationFrame(()=>{
+        const target=root.getElementById('briefing-task-section');
+        if(target){target.style.setProperty('display','grid','important');target.scrollIntoView({behavior:'smooth',block:'start'});}
+      });
     };
     window.linkingShowPriorityTasks=i=>{
       const item=window.linkingPriorityItems?.[i],panel=root.getElementById('work-priority-tasks');
