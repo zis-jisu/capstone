@@ -395,7 +395,7 @@ function enterApp(){
   document.getElementById('login-screen').classList.add('hidden');
   renderSlackSettings();
   setMainView(isManagementRole()?'manage':'briefing');
-  render();
+  if(!isManagementRole())render();
 }
 function currentProject(){return state.project==='all'?{id:'all',name:'전체 프로젝트',tasks:Object.keys(TASKS)}:PROJECTS.find(p=>p.id===state.project)}
 function currentTask(){return TASKS[state.task]}
@@ -1248,7 +1248,7 @@ setMainView=function(view){if(senderEditing){toast('수정을 저장하거나 �
 
 render();
 </script>
-<script src="/demo_adapter.js?v=20261027-work20-diagnostics"></script>
-<script src="/admin_adapter.js?v=20261027-work20-diagnostics"></script>
+<script src="/demo_adapter.js?v=20261027-management-login"></script>
+<script src="/admin_adapter.js?v=20261027-management-login"></script>
 </body>
 </html>

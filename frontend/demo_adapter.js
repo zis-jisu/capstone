@@ -200,7 +200,7 @@
   };
   const originalEnter = enterApp;
   enterApp = function() {
-    if(!loaded) return toast('Supabase 업무 데이터를 불러오는 중입니다. 잠시 기다려주세요.');
+    if(!loaded && !isManagementRole()) return toast('업무 데이터를 불러오는 중입니다. 잠시 기다려주세요.');
     return originalEnter();
   };
   const loginButton = root.querySelector('#login-screen button');
