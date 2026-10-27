@@ -261,12 +261,16 @@ def ml_priorities(body: PriorityBody, _=Depends(demo_auth)):
 
 @app.post('/api/demo/slack-link')
 def demo_slack_link(_=Depends(demo_auth), identity=Depends(slack_actor)):
-    # Demo bootstrap: train with already-processed Supabase data, not raw MCP collection.
+    # Demo bootstrap: the ML Railway training job reads the isolated *_mock
+    # graph/RPC. Validate that same dataset before triggering the job.
     if slack_login_enabled() and (not identity or identity['person_id'] != JISOO_ID):
         raise HTTPException(403, 'Supervisor login is required')
-    snapshot = SupabaseStore().snapshot()
+    snapshot = _frontend_store().snapshot()
     if not snapshot['works'] or not snapshot['tasks']:
-        raise HTTPException(409, 'Supabase Work/Task data is empty')
+        raise HTTPException(409, 'Supabase mock Work/Task data is empty')
+    graph = export_graph(snapshot)
+    if not graph['nodes'] or not graph['edges']:
+        raise HTTPException(409, 'Supabase mock graph is empty')
     return ml_bridge.stream_training()
 
 
