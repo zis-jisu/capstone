@@ -225,9 +225,37 @@ def _db_assignments(method='GET', params=None, rows=None):
 from src import ml_bridge
 
 class PriorityBody(BaseModel):
-    person_id: str = Field(pattern=r'^U[A-Z0-9]+
+    person_id: str = Field(pattern=r'^U[A-Z0-9]+$', max_length=40)
+
+
+@app.get('/api/ml/training')
+def ml_training_status(_=Depends(demo_auth)):
+    return ml_bridge.training_status()
+
+
+@app.post('/api/admin/ml/training')
+def ml_start_training(_=Depends(admin_auth)):
+    return ml_bridge.stream_training()
+
+
+@app.post('/api/ml/priorities')
+def ml_priorities(body: PriorityBody, _=Depends(demo_auth)):
+    return ml_bridge.priorities(body.person_id)
+
+
+@app.post('/api/demo/slack-link')
+def demo_slack_link(_=Depends(demo_auth), identity=Depends(slack_actor)):
+    # Demo bootstrap: train with already-processed Supabase data, not raw MCP collection.
+    if slack_login_enabled() and (not identity or identity['person_id'] != JISOO_ID):
+        raise HTTPException(403, 'Supervisor login is required')
+    snapshot = SupabaseStore().snapshot()
+    if not snapshot['works'] or not snapshot['tasks']:
+        raise HTTPException(409, 'Supabase Work/Task data is empty')
+    return ml_bridge.stream_training()
+
+
+@app.get('/api/demo/meta')
 def demo_meta(_=Depends(demo_auth)):
-    # Training timestamps must be supplied by the real model training pipeline.
     try:
         ml_status = ml_bridge.training_status()
         trained_at = ml_status.get('model_trained_at') or (ml_status.get('last_result') or {}).get('model_trained_at')
@@ -235,8 +263,8 @@ def demo_meta(_=Depends(demo_auth)):
         trained_at = None
     snapshot = SupabaseStore().snapshot()
     event_updates = [e.get('updated_at') for e in snapshot['events'] if e.get('updated_at')]
-    return {'model_trained_at':trained_at, 'last_analyzed_at':max(event_updates,default=None),
-            'model_training_source':'ml_api' if trained_at else 'not_connected'}
+    return {'model_trained_at': trained_at, 'last_analyzed_at': max(event_updates, default=None),
+            'model_training_source': 'ml_api' if trained_at else 'not_connected'}
 
 
 @app.get('/api/admin/validate')
