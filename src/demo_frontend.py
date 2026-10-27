@@ -277,6 +277,21 @@ def admin_auth(
     return True
 
 
+def manager_auth(
+    _=Depends(demo_auth), identity=Depends(slack_actor),
+    x_demo_role: Annotated[str | None, Header()] = None,
+):
+    # The existing account picker is a Basic-auth-protected UI demonstration.
+    # Never trust its role header when verified Slack login is enabled.
+    if slack_login_enabled():
+        allowed = {value.strip() for value in os.getenv('MANAGER_PERSON_IDS', '').split(',') if value.strip()}
+        if not identity or identity['person_id'] not in allowed:
+            raise HTTPException(403, 'Manager login required')
+    elif x_demo_role != 'manager':
+        raise HTTPException(403, 'Manager demo role required')
+    return True
+
+
 class AssignmentRequest(BaseModel):
     work_id: str | None = Field(default=None, min_length=1, max_length=90)
     task_id: str | None = Field(default=None, min_length=1, max_length=90)
@@ -330,11 +345,9 @@ def ml_priorities(body: PriorityBody, _=Depends(demo_auth)):
 
 
 @app.post('/api/demo/slack-link')
-def demo_slack_link(_=Depends(demo_auth), identity=Depends(slack_actor)):
+def demo_slack_link(_=Depends(admin_auth)):
     # Demo bootstrap: the ML Railway training job reads the isolated *_mock
     # graph/RPC. Validate that same dataset before triggering the job.
-    if slack_login_enabled() and (not identity or identity['person_id'] != JISOO_ID):
-        raise HTTPException(403, 'Supervisor login is required')
     snapshot = _frontend_store().snapshot()
     if not snapshot['works'] or not snapshot['tasks']:
         raise HTTPException(409, 'Supabase mock Work/Task data is empty')
@@ -448,6 +461,16 @@ async def _collect_via_mcp(person_id, days):
             if not isinstance(content,dict) or not isinstance(content.get('records'),list):
                 raise HTTPException(502,'Unexpected MCP response')
             return content
+
+
+@app.get('/api/manager/assignments')
+def manager_assignments(_=Depends(manager_auth)):
+    return list_assignments()
+
+
+@app.post('/api/manager/assignments', status_code=201)
+def manager_create_assignment(body: AssignmentRequest, _=Depends(manager_auth)):
+    return create_assignment(body)
 
 
 @app.post('/api/admin/slack-collect')

@@ -9,7 +9,7 @@
   const displayTime = value => value ? new Date(value).toLocaleString('ko-KR') : '미연동';
   async function request(path, options={}) {
     const response = await fetch(path, {cache:'no-store',credentials:'same-origin',...options,
-      headers:{...(options.body?{'Content-Type':'application/json'}:{}),...(token?{'X-Admin-Token':token}:{}),...(options.headers||{})}});
+      headers:{...(options.body?{'Content-Type':'application/json'}:{}),...(token?{'X-Admin-Token':token}:{}),...(currentUserRole==='manager'?{'X-Demo-Role':'manager'}:{}),...(options.headers||{})}});
     if(!response.ok) throw new Error(response.status===403?'관리자 인증이 거부됐어요.':`요청 실패 (HTTP ${response.status})`);
     return response.json();
   }
@@ -21,63 +21,39 @@
         : `모델 학습 날짜 미연동  |  업무 분석 · ${displayTime(info.last_analyzed_at)}`;
     } catch(err) { $('model-meta').textContent = '모델 학습 날짜 · 조회 불가'; }
   }
-  function setAdmin(active){
-    currentUserRole = active ? 'manager' : 'employee';
+  window.activateManagerWorkspace=async function(role){
+    token=null;
+    currentUserRole=role;
     applyRoleAccess();
-    const toggle=$('admin-toggle');
-    if(toggle){
-      toggle.textContent=active ? '관리자 모드 종료' : '관리자 모드';
-      toggle.classList.toggle('bg-[#F2F7FF]', active);
-    }
-  }
-  window.activateManagerWorkspace=async function(active){
-    token=null;  // UI role is not an API credential.
-    setAdmin(active);
-    if(!active)return;
-    const view=$('manage-view');
-    if(view){
-      let notice=$('manager-demo-notice');
-      if(!notice){
-        notice=document.createElement('div');notice.id='manager-demo-notice';
-        notice.className='rounded-2xl border border-[#D9E9FF] bg-[#F2F7FF] p-4 text-[12px] leading-5 text-[#315BE8]';
-        view.prepend(notice);
+    const manager=role==='manager',admin=role==='admin';
+    $('admin-sync-section').classList.toggle('hidden',!admin);
+    $('manager-assignment-section').classList.toggle('hidden',!manager);
+    $('manager-history-section').classList.toggle('hidden',!manager);
+    $('management-title').textContent=admin?'Slack 연동 관리':'팀원 업무 배정';
+    $('admin-sync-button').disabled=!admin;
+    $('admin-assign-button').disabled=!manager;
+    if(!manager&&!admin)return;
+    setMainView('manage');
+    if(admin){
+      const section=$('admin-sync-section');
+      let form=$('admin-auth-form');
+      if(!form){
+        form=document.createElement('form');form.id='admin-auth-form';
+        form.innerHTML='<label class="block text-[12px] font-bold">관리자 비밀번호<input id="admin-password" type="password" autocomplete="current-password" class="mt-2 w-full rounded-xl border px-3 h-11"/></label><button class="mt-3 rounded-xl bg-[#191F28] px-4 py-2 text-white">관리자 인증</button><p id="admin-auth-status" class="mt-2 text-[12px]" aria-live="polite"></p>';
+        section.prepend(form);
+        form.onsubmit=async event=>{
+          event.preventDefault();token=$('admin-password').value;$('admin-password').value='';
+          try{await request('/api/admin/validate');$('admin-auth-status').textContent='관리자 인증 완료';$('admin-sync-button').disabled=false;}
+          catch(error){token=null;$('admin-sync-button').disabled=true;$('admin-auth-status').textContent=error.message;}
+        };
       }
-      notice.textContent='팀장 시연 화면 · Slack 연동과 인수인계 업무 배정은 독립적으로 실행됩니다. 업무 배정은 관리자 인증이 필요합니다.';
-      let authButton=$('admin-auth-button');
-      if(!authButton){
-        authButton=document.createElement('button');authButton.id='admin-auth-button';authButton.type='button';
-        authButton.className='mt-3 rounded-xl bg-[#191F28] px-4 py-2.5 text-white text-[12px] font-bold';
-        authButton.onclick=()=>window.toggleAdminMode();
-        notice.appendChild(authButton);
-      }
-      authButton.textContent='관리자 인증하기';
+      $('admin-password').value='';$('admin-auth-status').textContent='Slack 연동 전에 관리자 인증을 완료하세요.';
+      $('admin-sync-button').disabled=true;
     }
-    for(const id of ['admin-assign-button']){
-      const button=$(id);if(button){button.disabled=true;button.title='서버 관리자 인증 설정이 필요합니다';button.classList.add('opacity-50','cursor-not-allowed');}
+    if(manager){
+      try{await loadDirectory();await loadAssignments();}
+      catch(error){$('admin-assignment-list').textContent='업무 목록 조회 실패: '+error.message;}
     }
-    try{
-      await loadDirectory();
-      const output=$('admin-assignment-list');
-      if(output)output.textContent='업무 배정 이력은 관리자 서버 인증 후 조회할 수 있습니다.';
-    }catch(error){
-      const output=$('admin-assignment-list');
-      if(output)output.textContent='업무 목록 조회 실패: '+error.message;
-    }
-  };
-  window.toggleAdminMode = async () => {
-    if(token){token=null;setAdmin(false);setMainView('briefing');await window.activateManagerWorkspace(true);return;}
-    const candidate=window.prompt('관리자 비밀번호를 입력하세요. (시연 로그인과 별도)');
-    if(!candidate) return;
-    token=candidate;
-    try {
-      await request('/api/admin/validate');
-      setAdmin(true);setMainView('manage');
-      for(const id of ['admin-sync-button','admin-assign-button']){
-        const button=$(id);if(button){button.disabled=false;button.title='';button.classList.remove('opacity-50','cursor-not-allowed');}
-      }
-      const notice=$('manager-demo-notice');if(notice)notice.textContent='관리자 인증 완료 · Slack 연동 및 인수인계 업무 배정을 사용할 수 있습니다.';
-      await loadDirectory(); await loadAssignments();
-    } catch(err) { token=null;setAdmin(false);toast(err.message); }
   };
   async function loadDirectory(){
     const data=await request('/api/demo/data');
@@ -109,20 +85,21 @@
     renderWorks();
   }
   async function loadAssignments(){
-    const rows=(await request('/api/admin/assignments')).assignments||[];
+    const rows=(await request('/api/manager/assignments')).assignments||[];
     const personId=id=>directory.persons.find(x=>x.person_id===id)?.name||id;
     const taskId=id=>directory.tasks.find(x=>x.task_id===id)?.title||id;
     const workForTask=id=>{const link=directory.edges.find(e=>e.source_type==='Work'&&e.target_type==='Task'&&e.relation==='HAS_TASK'&&e.target_id===id);return directory.works.find(w=>w.work_id===link?.source_id)?.title||'Work 미확인';};
     $('admin-assignment-list').innerHTML = rows.length ? rows.map(x=>`<div class="rounded-xl border border-[#EEF0F3] px-4 py-3 flex flex-wrap justify-between gap-3"><span><b>${escapeHtml(workForTask(x.task_id))}</b><span class="block mt-1 text-[11px] text-[#8B95A1]">${escapeHtml(taskId(x.task_id))}</span> → ${escapeHtml(personId(x.assignee_id))}</span><span class="text-[#8B95A1]">${escapeHtml(displayTime(x.assigned_at))} · ${escapeHtml(x.status)}</span></div>`).join('') : '<div class="text-[#8B95A1]">배정 내역이 없습니다.</div>';
   }
   window.runAdminSync = async () => {
+    if(currentUserRole!=='admin'||!token)return;
     const button=$('admin-sync-button'),output=$('admin-sync-result');
     const days=Number($('admin-sync-days')?.value||14);
     button.disabled=true;output.textContent=`최근 ${days}일 기준 · Supabase 업무 데이터 확인 중…`;
     try {
       const db=await request('/api/demo/data');
       output.textContent=`최근 ${days}일 · Supabase 조회 완료 · Work ${db.works?.length||0}건 / Task ${db.tasks?.length||0}건 · ML 학습 시작…`;
-      const response=await fetch('/api/demo/slack-link',{method:'POST',credentials:'same-origin'});
+      const response=await fetch('/api/demo/slack-link',{method:'POST',credentials:'same-origin',headers:{'X-Admin-Token':token}});
       if(!response.ok){
         let detail='';
         try{detail=(await response.json()).detail||'';}catch(_error){}
@@ -150,6 +127,7 @@
     finally{button.disabled=false;}
   };
   window.createAdminAssignment = async () => {
+    if(currentUserRole!=='manager')return;
     const button=$('admin-assign-button'); button.disabled=true; $('admin-assign-result').textContent='업무 배정 저장 중…';
     try {
       const sourcePersonId=$('admin-source-person').dataset.personId||'';
@@ -159,7 +137,7 @@
       if(!assigneeId)throw new Error('인수자를 선택하세요.');
       if(sourcePersonId===assigneeId)throw new Error('인계자와 인수자는 달라야 합니다.');
       if(!workId)throw new Error('배정할 Work를 선택하세요.');
-      const result=await request('/api/admin/assignments',{method:'POST',body:JSON.stringify({work_id:workId,source_person_id:sourcePersonId,assignee_id:assigneeId})});
+      const result=await request('/api/manager/assignments',{method:'POST',body:JSON.stringify({work_id:workId,source_person_id:sourcePersonId,assignee_id:assigneeId})});
       $('admin-assign-result').textContent=`배정 저장 완료 · 미완료 세부 업무 ${result.task_ids?.length||0}건을 인수자에게 배정했습니다.`;
       await loadAssignments();
       return result;
@@ -173,7 +151,7 @@
 /* Marketing handover database-backed UI demonstration; account switching is simulated, not authorization. */
 (() => {
  'use strict';
- const TEAM=['김지수','박서연','최민준'], ACCOUNT=['원이정','김지수','박서연','최민준','팀장'];
+ const TEAM=['김지수','박서연','최민준'], ACCOUNT=['원이정','김지수','박서연','최민준','팀장','관리자'];
  const PERSON_IDS={'원이정':'U0C20G9MRML','김지수':'U0C22C8M742','박서연':'U0C6WSR5275','최민준':'U0C38J2MUF4'};
  const API='/api/demo/handover-requests';
  const WORK_ID='WORK-00020', WORK_TITLE='신차 출시 캠페인 콘텐츠 현지화 및 배포 준비';
@@ -394,7 +372,7 @@
  };
  // Header actions are authored in index.html in a single four-button row.
  const existingInbox=el('handover-demo-inbox'),existingReceived=el('handover-demo-received');
- el('handover-demo-logout').onclick=()=>{authToken=null;if(verifiedMode){window.clearVerifiedDemoData?.();window.location.assign('/api/demo/auth/logout');return;}closePanel();if(typeof closeImport==='function')closeImport();el('login-screen').classList.remove('hidden');};
+ el('handover-demo-logout').onclick=()=>{authToken=null;window.activateManagerWorkspace('employee');if(verifiedMode){window.clearVerifiedDemoData?.();window.location.assign('/api/demo/auth/logout');return;}closePanel();if(typeof closeImport==='function')closeImport();el('login-screen').classList.remove('hidden');};
  if(existingInbox)existingInbox.onclick=inbox;
  if(existingReceived)existingReceived.onclick=received;
  const steps=document.querySelectorAll('#import-steps [data-step] div:last-child');
@@ -409,7 +387,7 @@
  if(loginSelect){
   loginSelect.addEventListener('change',()=>{
    const label=el('handover-login-role');
-   if(label)label.textContent='일반사원';
+   if(label)label.textContent=loginSelect.value==='팀장'?'팀장':loginSelect.value==='관리자'?'관리자':'일반사원';
   });
  }
 
@@ -421,7 +399,8 @@
  function showGate(mode){
   const briefing=el('briefing-view');
   if(!briefing)return;
-  const locked=actor!=='팀장'&&mode!=='approved';
+  const management=actor==='팀장'||actor==='관리자';
+  const locked=management||mode!=='approved';
   briefing.classList.toggle('handover-locked',locked);
   let gate=el('handover-approval-gate');
   if(!gate){
@@ -439,7 +418,9 @@
     rejected:{icon:'block',tag:'요청 반려',title:'인수인계 요청이 반려됐어요',description:'업무는 표시되지 않습니다. 필요한 경우 김지수님에게 다시 요청해 주세요.',action:'다시 요청하기'},
     error:{icon:'wifi_off',tag:'확인 실패',title:'승인 상태를 불러오지 못했어요',description:'승인 여부를 확인할 수 없어 업무를 숨겼습니다. 다시 조회해 주세요.',action:'요청 내역 확인'}
    };
-   const config=actor==='김지수'&&mode!=='approved'&&mode!=='error'&&mode!=='checking'
+   const config=management
+    ?{icon:'assignment_ind',tag:'인수 내역 없음',title:'자동으로 표시되는 인수인계 업무가 없습니다',description:'관리 메뉴에서 담당 역할의 기능을 이용하세요.'}
+    :actor==='김지수'&&mode!=='approved'&&mode!=='error'&&mode!=='checking'
     ?{icon:'inventory_2',tag:'인수 내역 없음',title:'아직 인수받은 업무가 없어요',description:'김지수님이 다른 구성원에게서 승인받아 인수한 업무가 없습니다.'}
     :configs[mode]||configs.empty;
    gate.innerHTML='<div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F2F7FF] text-[#3182F6]"><span class="material-symbols-outlined text-[30px]">'+config.icon+'</span></div>'+
@@ -455,7 +436,7 @@
   if(heading&&actor!=='팀장')heading.textContent=locked?'인수받은 업무 없음':'인수받은 업무';
  }
  async function refreshGate(){
-  if(actor==='팀장'){showGate('approved');return;}
+  if(actor==='팀장'||actor==='관리자'){showGate('empty');return;}
   const requesterId=PERSON_IDS[actor];
   if(!requesterId){showGate('empty');return;}
   showGate('checking');
@@ -526,13 +507,14 @@
     }
     updateSidebarIdentity();
     if(typeof window.setPersonalWorkActor==='function')window.setPersonalWorkActor(actor);
-    showGate(actor==='팀장'?'approved':'checking');
+    currentUserRole=!verifiedMode&&actor==='팀장'?'manager':!verifiedMode&&actor==='관리자'?'admin':'employee';
+    closePanel();
+    showGate('checking');
     previousEnterApp();
     if(typeof window.activateManagerWorkspace==='function')
-      await window.activateManagerWorkspace(actor==='팀장'&&!verifiedMode);
-    if(actor==='팀장'&&!verifiedMode){
+      await window.activateManagerWorkspace(currentUserRole);
+    if(isManagementRole()){
       setMainView('manage');
-      await inbox();
     }else if(actor==='김지수'){
       setMainView('briefing');
       await refreshGate();
@@ -540,7 +522,7 @@
       await refreshGate();
     }
     const role=el('handover-login-role');
-    if(role)role.textContent=actor==='팀장'?'팀장':'일반사원';
+    if(role)role.textContent=actor==='팀장'?'팀장':actor==='관리자'?'관리자':'일반사원';
   }catch(err){
     console.error('Login error',err);
     showLoginError('로그인 실패: '+(err?.message||'알 수 없는 오류'));
