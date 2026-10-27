@@ -521,6 +521,16 @@
     const r=await fetch('/api/ml/priorities',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({person_id:id})});
     if(!r.ok)throw Error('우선순위 산출 실패 (HTTP '+r.status+')');
     const result=await r.json();window.mlPriorityResult=result;
+    const overview=document.getElementById('priority-overview');
+    if(overview){
+      let panel=document.getElementById('ml-priority-results');
+      if(!panel){panel=document.createElement('section');panel.id='ml-priority-results';panel.className='bg-white rounded-[22px] border border-[#EEF0F3] p-5 mt-4';overview.insertAdjacentElement('afterend',panel);}
+      const ordered=Object.values(result.rankings||{}).sort((a,b)=>a.final_priority_rank-b.final_priority_rank);
+      const safe=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      panel.innerHTML='<div class="font-bold text-[16px]">ML 우선순위 · '+safe(result.person_name||id)+'</div>'+
+        '<div class="mt-1 text-[11px] text-[#8B95A1]">R-GAE API 결과 · 미완료 Task · '+ordered.length+'건</div>'+
+        (ordered.length?'<div class="mt-4 space-y-2">'+ordered.slice(0,10).map(t=>'<div class="flex flex-wrap items-center justify-between gap-3 border-b border-[#EEF0F3] pb-2"><span class="text-[12px] font-semibold">'+safe(t.final_priority_rank)+'위 · '+safe(t.task_name||t.task_id)+'</span><span class="text-[12px] font-bold text-[#1B64DA]">'+safe(t.final_priority_score)+'점</span></div>').join('')+'</div>':'<p class="mt-3 text-[12px] text-[#8B95A1]">대상자에게 산출할 미완료 업무가 없습니다.</p>');
+    }
     const rankings=result.rankings||{};
     const matched=Object.entries(rankings).filter(([id])=>window.TASKS?.[id]);
     if(matched.length){
