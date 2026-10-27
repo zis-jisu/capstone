@@ -42,7 +42,15 @@
         notice.className='rounded-2xl border border-[#D9E9FF] bg-[#F2F7FF] p-4 text-[12px] leading-5 text-[#315BE8]';
         view.prepend(notice);
       }
-      notice.textContent='팀장 시연 화면 · 저장된 업무 및 직원 조회만 가능합니다. Slack 수집·업무 배정은 관리자 서버 인증 설정 후 사용할 수 있습니다.';
+      notice.textContent='팀장 시연 화면 · 관리자 인증 후 Slack 수집 및 업무 배정을 사용할 수 있습니다.';
+      let authButton=$('admin-auth-button');
+      if(!authButton){
+        authButton=document.createElement('button');authButton.id='admin-auth-button';authButton.type='button';
+        authButton.className='mt-3 rounded-xl bg-[#191F28] px-4 py-2.5 text-white text-[12px] font-bold';
+        authButton.onclick=()=>window.toggleAdminMode();
+        notice.appendChild(authButton);
+      }
+      authButton.textContent='관리자 인증하기';
     }
     for(const id of ['admin-sync-button','admin-assign-button']){
       const button=$(id);if(button){button.disabled=true;button.title='서버 관리자 인증 설정이 필요합니다';button.classList.add('opacity-50','cursor-not-allowed');}
@@ -57,13 +65,17 @@
     }
   };
   window.toggleAdminMode = async () => {
-    if(token){token=null;setAdmin(false);setMainView('briefing');return;}
+    if(token){token=null;setAdmin(false);setMainView('briefing');await window.activateManagerWorkspace(true);return;}
     const candidate=window.prompt('관리자 비밀번호를 입력하세요. (시연 로그인과 별도)');
     if(!candidate) return;
     token=candidate;
     try {
       await request('/api/admin/validate');
       setAdmin(true);setMainView('manage');
+      for(const id of ['admin-sync-button','admin-assign-button']){
+        const button=$(id);if(button){button.disabled=false;button.title='';button.classList.remove('opacity-50','cursor-not-allowed');}
+      }
+      const notice=$('manager-demo-notice');if(notice)notice.textContent='관리자 인증 완료 · Slack 수집 및 업무 배정을 사용할 수 있습니다.';
       await loadDirectory(); await loadAssignments();
     } catch(err) { token=null;setAdmin(false);toast(err.message); }
   };
