@@ -138,6 +138,7 @@
     const priorities = root.getElementById('priority-overview');
     if(priorities) priorities.classList.remove('hidden');
     loaded = true;
+    if(typeof window.restoreMlPriorities==='function')window.restoreMlPriorities();
     render();
     const details = root.getElementById('handover-project-select'); if(details && HANDOVER_WORKS.length) details.value = HANDOVER_WORKS[0].id;
     if (mainView === 'handover' && HANDOVER_WORKS.length) renderMyWork();

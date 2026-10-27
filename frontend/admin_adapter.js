@@ -154,7 +154,8 @@
   ['TASK-00080','딜러 이미지·UTM·배포 대상 준비 및 포털 반영']
  ];
  let actor='원이정';
- const DEMO_MANAGER_KEY='linking_manager_ui_approvals_v1';
+ // v2 resets UI-only approvals created before the priority POST/storage flow existed.
+ const DEMO_MANAGER_KEY='linking_manager_ui_approvals_v2';
  function managerApprovals(){try{return JSON.parse(localStorage.getItem(DEMO_MANAGER_KEY)||'{}')}catch{return {}}}
  function saveManagerApproval(id,status){const rows=managerApprovals();rows[id]=status;localStorage.setItem(DEMO_MANAGER_KEY,JSON.stringify(rows));}
  let verifiedMode=false;
@@ -258,7 +259,25 @@
   el('handover-confirm').onclick=()=>decide(id,'approved');
  }
   async function decide(id,status){
-   if(actor==='팀장'&&!verifiedMode){saveManagerApproval(id,status);await inbox();message('팀장 '+(status==='approved'?'승인':'반려')+' UI 시연이 완료됐습니다. 실제 DB에는 반영되지 않습니다.');return;}
+   if(actor==='팀장'&&!verifiedMode){
+    let request;
+    try{request=(await load()).find(r=>r.id===id&&r.status==='pending');}
+    catch(e){return message(e.message)}
+    if(!request)return message('처리할 인수인계 요청을 찾을 수 없습니다.');
+    saveManagerApproval(id,status);
+    await inbox();
+    if(status==='approved'){
+     try{
+      if(typeof window.refreshMlPriorities!=='function')throw new Error('우선순위 API 연결을 찾을 수 없습니다');
+      const priority=await window.refreshMlPriorities(request.requesterId);
+      if(!priority.matchedTaskIds.length)throw new Error('승인된 인수자와 매핑된 ML Task가 없습니다');
+      message('팀장 승인 완료 · 인수자의 ML 우선순위를 저장하고 Task에 반영했습니다.');
+     }catch(priorityError){
+      message('팀장 승인은 완료됐지만 우선순위 반영에 실패했습니다: '+priorityError.message);
+     }
+    }else message('팀장 반려 UI 시연이 완료됐습니다.');
+    return;
+   }
    const actorId=PERSON_IDS[actor];
    let request;
    try{request=(await load()).find(r=>r.id===id&&r.status==='pending');}
@@ -270,7 +289,8 @@
     if(status==='approved'){
      try{
       if(typeof window.refreshMlPriorities!=='function')throw new Error('우선순위 API 연결을 찾을 수 없습니다');
-      await window.refreshMlPriorities(request.requesterId);
+      const priority=await window.refreshMlPriorities(request.requesterId);
+      if(!priority.matchedTaskIds.length)throw new Error('승인된 인수자와 매핑된 ML Task가 없습니다');
       message('DB 승인 완료 · 인수자의 ML 우선순위를 반영했습니다.');
      }catch(priorityError){
       message('DB 승인은 완료됐지만 우선순위 산출에 실패했습니다: '+priorityError.message);
@@ -528,6 +548,30 @@
 (() => {
   'use strict';
   const personId = name => ({'원이정':'U0C20G9MRML','김지수':'U0C22C8M742','박서연':'U0C6WSR5275','최민준':'U0C38J2MUF4'})[name] || null;
+  const PRIORITY_STORAGE_KEY='linking_ml_priorities_v1';
+  const normalizeTaskName=value=>String(value??'').replace(/\s+/g,' ').trim().toLocaleLowerCase('ko-KR');
+  const readPriorityStore=()=>{
+    try{return JSON.parse(localStorage.getItem(PRIORITY_STORAGE_KEY)||'{"byTaskId":{},"byTaskName":{}}')}
+    catch{return {byTaskId:{},byTaskName:{}}}
+  };
+  const writePriorityStore=store=>localStorage.setItem(PRIORITY_STORAGE_KEY,JSON.stringify(store));
+  const priorityRows=result=>{
+    const source=result?.rankings??result?.priorities??result?.task_priorities??result?.data?.rankings??result?.data?.priorities??result;
+    if(Array.isArray(source))return source.map((value,index)=>[value?.task_id||value?.id||String(index),value]);
+    if(source&&typeof source==='object')return Object.entries(source);
+    return [];
+  };
+  window.restoreMlPriorities=()=>{
+    const store=readPriorityStore();
+    const taskIdByName=new Map(Object.entries(window.TASKS||{}).map(([taskId,task])=>[normalizeTaskName(task.sourceName||task.name),taskId]));
+    for(const [storedTaskId,value] of Object.entries(store.byTaskId||{})){
+      const taskId=window.TASKS?.[storedTaskId]?storedTaskId:taskIdByName.get(normalizeTaskName(value.taskName));
+      if(!taskId||!window.TASKS?.[taskId])continue;
+      window.TASKS[taskId].risk=value.score;
+      window.TASKS[taskId].priorityScore=value.score;
+      window.TASKS[taskId].priorityRank=value.rank;
+    }
+  };
   const getStatus = async () => {
     const r=await fetch('/api/ml/training',{credentials:'same-origin',cache:'no-store'});
     if(!r.ok)throw Error('학습 상태 조회 실패 (HTTP '+r.status+')');
@@ -575,12 +619,17 @@
     if(!r.ok)throw Error('우선순위 산출 실패 (HTTP '+r.status+')');
     const result=await r.json();window.mlPriorityResult=result;
     document.getElementById('ml-priority-results')?.remove();
-    const rankings=result.rankings||{};
-    const normalizeName=value=>String(value??'').replace(/\s+/g,' ').trim().toLocaleLowerCase('ko-KR');
-    const taskIdByName=new Map(Object.entries(window.TASKS||{}).map(([taskId,task])=>[normalizeName(task.sourceName||task.name),taskId]));
-    const matched=Object.entries(rankings).map(([taskId,value])=>[
-      window.TASKS?.[taskId] ? taskId : taskIdByName.get(normalizeName(value.task_name)), value,
+    const taskIdByName=new Map(Object.entries(window.TASKS||{}).map(([taskId,task])=>[normalizeTaskName(task.sourceName||task.name),taskId]));
+    const normalized=priorityRows(result).map(([sourceTaskId,value])=>({
+      sourceTaskId,
+      taskName:value?.task_name??value?.title??value?.name??'',
+      score:Number(value?.final_priority_score??value?.priority_score??value?.score),
+      rank:Number(value?.final_priority_rank??value?.priority_rank??value?.rank),
+    })).filter(value=>Number.isFinite(value.score)&&Number.isFinite(value.rank));
+    const matched=normalized.map(value=>[
+      window.TASKS?.[value.sourceTaskId] ? value.sourceTaskId : taskIdByName.get(normalizeTaskName(value.taskName)), value,
     ]).filter(([taskId])=>taskId&&window.TASKS?.[taskId]);
+    if(normalized.length&&!matched.length)throw Error('ML 결과의 task_id 또는 업무명이 프론트 Task와 일치하지 않습니다');
     window.mlPriorityTaskIdsByPerson=window.mlPriorityTaskIdsByPerson||{};
     for(const taskId of window.mlPriorityTaskIdsByPerson[id]||[]){
       if(window.TASKS?.[taskId]){
@@ -590,13 +639,20 @@
       }
     }
     for(const [taskId,value] of matched){
-      window.TASKS[taskId].risk=Number(value.final_priority_score);
-      window.TASKS[taskId].priorityScore=Number(value.final_priority_score);
-      window.TASKS[taskId].priorityRank=Number(value.final_priority_rank);
+      window.TASKS[taskId].risk=value.score;
+      window.TASKS[taskId].priorityScore=value.score;
+      window.TASKS[taskId].priorityRank=value.rank;
     }
     window.mlPriorityTaskIdsByPerson[id]=matched.map(([taskId])=>taskId);
+    const store=readPriorityStore();store.byTaskId=store.byTaskId||{};store.byTaskName=store.byTaskName||{};
+    for(const [taskId,value] of matched){
+      const saved={personId:id,taskId,sourceTaskId:value.sourceTaskId,taskName:value.taskName||window.TASKS[taskId].sourceName||window.TASKS[taskId].name,score:value.score,rank:value.rank,savedAt:new Date().toISOString()};
+      store.byTaskId[taskId]=saved;
+      store.byTaskName[normalizeTaskName(saved.taskName)]=saved;
+    }
+    writePriorityStore(store);window.mlPriorityByTask=store.byTaskId;
     if(typeof window.render==='function')window.render();
-    return result;
+    return {result,matchedTaskIds:matched.map(([taskId])=>taskId)};
   };
   const originalSync=window.runAdminSync;
   if(typeof originalSync==='function')window.runAdminSync=async(...args)=>{
