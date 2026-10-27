@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from src.db import SupabaseStore, export_graph, to_db, TABLE_KEYS
 from src.pipeline import run_pipeline
 from src.slack.mcp_server import collect_context
+from src import ml_bridge
 
 app = FastAPI(title="Capstone Slack Handover API", version="0.1.0")
 origins = [x.strip() for x in os.getenv("FRONTEND_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if x.strip()]
@@ -81,7 +82,10 @@ def work_detail(snapshot, work_id):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
+    ml = ml_bridge.configuration_status()
+    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat(),
+            "ml_api": "configured" if ml["configured"] else "misconfigured",
+            "ml_api_url": ml["base_url"]}
 
 
 @app.get("/api/works")

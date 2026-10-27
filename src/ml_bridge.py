@@ -21,11 +21,29 @@ def trained_at(status):
         or latest_model.get("trained_at")
     )
 
+def _base_url():
+    base = os.getenv("MODEL_API_URL", BASE).strip().strip("<>").rstrip("/")
+    if base and "://" not in base and base.endswith(".railway.app"):
+        base = "https://" + base
+    for suffix in ("/v1/training", "/v1/priorities", "/v1"):
+        if base.endswith(suffix):
+            base = base[:-len(suffix)]
+            break
+    return base
+
+
+def configuration_status():
+    return {
+        "configured": bool(os.getenv("MODEL_API_KEY", "").strip()) and _base_url().startswith("https://"),
+        "base_url": _base_url(),
+    }
+
+
 def _settings():
-    key = os.getenv("MODEL_API_KEY", "")
+    key = os.getenv("MODEL_API_KEY", "").strip()
     if not key:
         raise HTTPException(503, "MODEL_API_KEY is not configured on LINK-ing Railway")
-    base = os.getenv("MODEL_API_URL", BASE).rstrip("/")
+    base = _base_url()
     if not base.startswith("https://"):
         raise HTTPException(503, "MODEL_API_URL must use HTTPS")
     return base, key

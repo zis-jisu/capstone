@@ -101,7 +101,11 @@
       const db=await request('/api/demo/data');
       output.textContent=`Supabase 조회 완료 · Work ${db.works?.length||0}건 / Task ${db.tasks?.length||0}건 · ML 학습 시작…`;
       const response=await fetch('/api/demo/slack-link',{method:'POST',credentials:'same-origin'});
-      if(!response.ok)throw new Error('학습 시작 실패 (HTTP '+response.status+')');
+      if(!response.ok){
+        let detail='';
+        try{detail=(await response.json()).detail||'';}catch(_error){}
+        throw new Error(detail||('학습 시작 실패 (HTTP '+response.status+')'));
+      }
       if(!response.body)throw new Error('학습 진행 응답이 없습니다');
       const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',completed=false;
       while(true){
