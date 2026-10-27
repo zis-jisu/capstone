@@ -23,8 +23,10 @@ def trained_at(status):
 
 def _base_url():
     base = os.getenv("MODEL_API_URL", BASE).strip().strip("<>").rstrip("/")
-    if base and "://" not in base and base.endswith(".railway.app"):
-        base = "https://" + base
+    if base.startswith("https:"):
+        base = "https://" + base[len("https:"):].lstrip("/\\")
+    elif base and "://" not in base and base.endswith(".railway.app"):
+        base = "https://" + base.lstrip("/\\")
     for suffix in ("/v1/training", "/v1/priorities", "/v1"):
         if base.endswith(suffix):
             base = base[:-len(suffix)]
