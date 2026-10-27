@@ -536,7 +536,7 @@
   if(loginBtn)loginBtn.disabled=true;
   if(error)error.classList.add('hidden');
   try{
-    await checkLoginConfig();
+    await (authConfigPromise||checkLoginConfig());
     if(verifiedMode){
       const res=await fetch('/api/demo/auth/me',{credentials:'same-origin',cache:'no-store'});
       if(!res.ok)throw new Error('Slack 로그인 확인 실패 (HTTP '+res.status+')');
