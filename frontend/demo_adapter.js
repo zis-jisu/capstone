@@ -171,6 +171,8 @@
     const ranked=id=>TASKS[id].priorityRank!=null&&Number(TASKS[id].priorityRank)>0;
     const rankedCount=ids.filter(ranked).length;
     const ordered=[...ids].sort((a,b)=>{
+      const byStatus=taskStatusRank(TASKS[a]?.status)-taskStatusRank(TASKS[b]?.status);
+      if(byStatus)return byStatus;
       if(ranked(a)!==ranked(b))return ranked(a)?-1:1;
       if(ranked(a)&&ranked(b))return Number(TASKS[a].priorityRank)-Number(TASKS[b].priorityRank);
       return Number(TASKS[b].updated||0)-Number(TASKS[a].updated||0);

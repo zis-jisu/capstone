@@ -407,6 +407,13 @@ function statusBadgeClass(status){
  if(value.includes('대기')||value.includes('미확인'))return 'bg-[#FFF8E8] text-[#B15C00] border border-[#F8D96B]';
  return 'bg-[#F2F7FF] text-[#315BE8] border border-[#C7D8FF]';
 }
+function taskStatusRank(status){
+ const value=String(status||'').toLowerCase();
+ if(value==='완료'||value==='completed')return 0;
+ if(value.includes('진행')||value==='in_progress')return 1;
+ if(value.includes('대기')||value==='waiting'||value==='planned'||value==='pending'||value==='blocked')return 2;
+ return 3;
+}
 function priorityLabel(t){
  const rank=t?.priorityRank==null?NaN:Number(t.priorityRank),score=t?.priorityScore==null?NaN:Number(t.priorityScore);
  if(Number.isFinite(rank)&&rank>0)return `${rank}위${Number.isFinite(score)?` · ${score.toFixed(2)}점`:''}`;
@@ -435,7 +442,11 @@ function filteredProjectTasks(){
   let ids=[...currentProject().tasks];
   if(state.filter)ids=ids.filter(id=>TASKS[id].type===state.filter);
   const sort=document.getElementById('sort-select')?.value||'risk';
-  ids.sort((a,b)=>sort==='risk'?TASKS[b].risk-TASKS[a].risk:sort==='latest'?TASKS[b].updated-TASKS[a].updated:TASKS[a].deadline.localeCompare(TASKS[b].deadline));
+  ids.sort((a,b)=>{
+   const byStatus=taskStatusRank(TASKS[a]?.status)-taskStatusRank(TASKS[b]?.status);
+   if(byStatus)return byStatus;
+   return sort==='risk'?TASKS[b].risk-TASKS[a].risk:sort==='latest'?TASKS[b].updated-TASKS[a].updated:TASKS[a].deadline.localeCompare(TASKS[b].deadline);
+  });
   return ids;
 }
 function renderTaskList(){
@@ -465,7 +476,7 @@ function renderTaskList(){
     };
     const openHtml=openIds.map(card).join('');
     const completedHtml=completedIds.length?`<details class="rounded-[18px] border border-[#E5E8EB] bg-[#F8F9FA] px-4 py-3"><summary class="cursor-pointer text-[13px] font-bold text-[#6B7684]">완료된 업무 ${completedIds.length}건 · 펼쳐보기</summary><div class="mt-3 space-y-3">${completedIds.map(card).join('')}</div></details>`:'';
-    list.innerHTML=openHtml+completedHtml||`<div class="rounded-2xl bg-[#F8F9FA] p-5 text-[13px] text-[#8B95A1]">현재 필터에 해당하는 업무가 없습니다.</div>`;
+    list.innerHTML=completedHtml+openHtml||`<div class="rounded-2xl bg-[#F8F9FA] p-5 text-[13px] text-[#8B95A1]">현재 필터에 해당하는 업무가 없습니다.</div>`;
   }
   renderPriorityOverview();
   renderDetail();
@@ -1078,11 +1089,12 @@ function renderMyWork(){
   document.getElementById('handover-result').innerHTML='<div class="p-8 text-center text-[#8B95A1] text-[14px]">선택된 Work가 없습니다.</div>';
   return;
  }
- const all=HANDOVER_WORKS.flatMap(w=>w.tasks.map(id=>HANDOVER_TASKS[id])),work=HANDOVER_WORKS.find(w=>w.id===handoverProject())||HANDOVER_WORKS[0],tasks=work.tasks.map(id=>HANDOVER_TASKS[id]);
+ const all=HANDOVER_WORKS.flatMap(w=>w.tasks.map(id=>HANDOVER_TASKS[id])),work=HANDOVER_WORKS.find(w=>w.id===handoverProject())||HANDOVER_WORKS[0],rawTasks=work.tasks.map(id=>HANDOVER_TASKS[id]),tasks=[...rawTasks].sort((a,b)=>taskStatusRank(a?.status)-taskStatusRank(b?.status));
  const completed=t=>t.status==='완료';
  const status=ts=>ts.every(completed)?'완료':ts.some(t=>t.status==='진행 중')?'진행 중':'대기';
+ const orderedWorks=[...HANDOVER_WORKS].sort((a,b)=>taskStatusRank(status(a.tasks.map(id=>HANDOVER_TASKS[id])))-taskStatusRank(status(b.tasks.map(id=>HANDOVER_TASKS[id]))));
  document.getElementById('my-work-summary').innerHTML=[['참여 Work',HANDOVER_WORKS.length],['미완료 Task',all.filter(t=>!completed(t)).length],['대기 Task',all.filter(t=>t.status==='대기').length],['인수인계 준비 완료',HANDOVER_WORKS.filter(w=>workPreparationStatus(w)==='준비 완료').length]].map(([label,n])=>`<div class="rounded-2xl bg-[#F8F9FA] p-4"><div class="text-[11px] text-[#6B7684]">${label}</div><div class="mt-2 text-[24px] font-bold">${n}<span class="ml-1 text-[12px] font-medium text-[#8B95A1]">개</span></div></div>`).join('');
- document.getElementById('my-work-list').innerHTML=HANDOVER_WORKS.map(w=>{const ts=w.tasks.map(id=>HANDOVER_TASKS[id]),active=w.id===work.id,prep=workPreparationStatus(w);return `<button type="button" onclick="selectMyWork('${w.id}')" aria-pressed="${active}" class="w-full text-left rounded-2xl border ${active?'border-[#3182F6] bg-[#F2F7FF]':'border-[#EEF0F3] bg-white hover:bg-[#F8F9FA]'} p-4"><div class="flex items-start justify-between gap-2"><div class="text-[15px] font-bold">${escSvg(w.name)}</div><span class="material-symbols-outlined text-[18px] text-[#8B95A1]">chevron_right</span></div><div class="mt-2 text-[12px] text-[#6B7684]">${status(ts)} · Task ${ts.length}개</div><div class="mt-3 flex flex-wrap justify-between gap-2 text-[11px]"><span class="text-[#8B95A1]">최종 Task 마감 · ${escSvg(ts[ts.length-1].deadline)}</span><span class="font-bold ${prep==='준비 완료'?'text-[#008B5E]':'text-[#3182F6]'}">${prep}</span></div></button>`}).join('');
+ document.getElementById('my-work-list').innerHTML=orderedWorks.map(w=>{const ts=w.tasks.map(id=>HANDOVER_TASKS[id]),active=w.id===work.id,prep=workPreparationStatus(w);return `<button type="button" onclick="selectMyWork('${w.id}')" aria-pressed="${active}" class="w-full text-left rounded-2xl border ${active?'border-[#3182F6] bg-[#F2F7FF]':'border-[#EEF0F3] bg-white hover:bg-[#F8F9FA]'} p-4"><div class="flex items-start justify-between gap-2"><div class="text-[15px] font-bold">${escSvg(w.name)}</div><span class="material-symbols-outlined text-[18px] text-[#8B95A1]">chevron_right</span></div><div class="mt-2 text-[12px] text-[#6B7684]">${status(ts)} · Task ${ts.length}개</div><div class="mt-3 flex flex-wrap justify-between gap-2 text-[11px]"><span class="text-[#8B95A1]">최종 Task 마감 · ${escSvg(ts[ts.length-1].deadline)}</span><span class="font-bold ${prep==='준비 완료'?'text-[#008B5E]':'text-[#3182F6]'}">${prep}</span></div></button>`}).join('');
  const next=tasks.find(t=>!completed(t)),saved=senderDocuments[senderKey('원이정',work.id)];
  document.getElementById('handover-result').innerHTML=`<div class="flex flex-wrap justify-between items-start gap-3"><div><div class="text-[11px] font-bold text-[#3182F6]">Work 상세 · ${status(tasks)}</div><h3 class="mt-2 text-[22px] font-bold">${escSvg(work.name)}</h3><p class="mt-2 text-[12px] text-[#8B95A1]">${personalWorkActor==='원이정'?'주담당':'참여자'} ${escSvg(personalWorkActor)} · 전체 업무 흐름 Task ${tasks.length}개 · 최종 Task 마감 ${escSvg(tasks[tasks.length-1].deadline)}</p></div><button onclick="prepareMyWork()" class="h-11 px-4 rounded-xl bg-[#3182F6] hover:bg-[#1B64DA] text-white text-[13px] font-bold">${saved?'인수인계 준비본 확인':'인수인계 준비하기'}</button></div><div class="mt-5 rounded-2xl bg-[#F2F7FF] border border-[#D9E9FF] p-4"><div class="text-[11px] font-bold text-[#1B64DA]">지금 해야 할 일</div><div class="mt-2 text-[14px] font-semibold">${escSvg(next?.next||'모든 세부 업무가 완료됐어요.')}</div>${next?.blocker?`<p class="mt-2 text-[12px] text-[#6B7684]">확인할 사항 · ${escSvg(next.blocker)}</p>`:''}</div><div class="mt-5 flex justify-between items-center"><h4 class="text-[15px] font-bold">포함된 세부 업무</h4><span class="text-[11px] text-[#8B95A1]">Supabase 조회 기준</span></div><div class="mt-3 divide-y divide-[#EEF0F3]">${tasks.map(t=>`<div class="py-3"><div class="flex justify-between gap-3"><div class="text-[13px] font-bold">${escSvg(t.name)}</div><span class="text-[11px] text-[#6B7684] shrink-0">${escSvg(t.deadline)}</span></div><div class="mt-1 text-[11px] text-[#8B95A1]">${escSvg(t.status)} · 담당자 ${escSvg(t.owner||"미확인")} · 참여자 ${escSvg((t.participants||[]).map(p=>p.name).filter(Boolean).join(", ")||"미확인")}</div><p class="mt-2 text-[12px] text-[#4E5968]">${escSvg(t.next)}</p><div class="mt-2 inline-flex px-2 py-1 rounded-full bg-[#F2F4F6] text-[10px] text-[#8B95A1]">Slack 근거 · ${escSvg(t.evidence)}</div></div>`).join('')}</div><div class="mt-4 border-t border-[#EEF0F3] pt-4 flex flex-wrap justify-between gap-2 text-[11px] text-[#8B95A1]"><span>인수인계 · ${workPreparationStatus(work)}${saved?' · v'+saved.version:''}</span><span>${saved?'준비본은 Slack 동기화 결과와 별도로 저장돼요.':'준비본을 수정·저장한 뒤 준비 완료로 확정하세요.'}</span></div>`;
 }
