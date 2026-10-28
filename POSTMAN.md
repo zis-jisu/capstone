@@ -56,7 +56,7 @@ X-API-Key: {{MODEL_API_KEY}}
 
 완료 후 상태와 최신 학습 날짜를 확인합니다. 모델은 Supabase Storage의 `rgae-models/models/latest.pt`에 저장됩니다.
 
-## 4. person_id 우선순위 확인
+## 4. 단일 인계 대상자 우선순위 확인
 
 ```http
 POST {{MODEL_API_URL}}/v1/priorities
@@ -84,6 +84,23 @@ X-API-Key: {{MODEL_API_KEY}}
   }
 }
 ```
+
+후보는 해당 인계 대상자와 직접 역할 edge로 연결된 활성 1-hop Task입니다.
+
+## 5. 여러 인계 대상자의 통합 우선순위 확인
+
+```http
+POST {{MODEL_API_URL}}/v1/priorities
+Content-Type: application/json
+X-API-Key: {{MODEL_API_KEY}}
+
+{
+  "person_ids": ["U0C22C8M742", "U0C1M3Q1PRV"],
+  "receiver_person_id": "U0C20G9MRML"
+}
+```
+
+두 source person을 동시에 제거한 counterfactual 영향도를 계산하고 직접 1-hop Task 합집합을 하나의 순위로 반환합니다. `receiver_person_id`는 응답 메타데이터에만 포함됩니다.
 
 ## 주의
 

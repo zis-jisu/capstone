@@ -16,10 +16,10 @@ from pydantic import BaseModel, Field
 
 from .config import Settings
 from .graph import (
+    direct_task_ids,
     normalize_graph,
     overlay_live_task_fields,
     resolve_person,
-    two_hop_task_ids,
 )
 from .model import task_impact_scores
 from .priority import rank_tasks
@@ -36,7 +36,16 @@ class TrainingRequest(BaseModel):
 
 
 class PriorityRequest(BaseModel):
-    person_id: str = Field(min_length=1, examples=["U0C22C8M742"])
+    person_id: str | None = Field(default=None, min_length=1, examples=["U0C22C8M742"])
+    person_ids: list[str] | None = Field(
+        default=None,
+        examples=[["U0C22C8M742", "U0C1M3Q1PRV"]],
+    )
+    receiver_person_id: str | None = Field(
+        default=None,
+        min_length=1,
+        examples=["U0C20G9MRML"],
+    )
 
 
 class TrainingCoordinator:
@@ -146,7 +155,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Handover R-GAE API",
-    version="3.0.0",
+    version="4.0.0",
     lifespan=lifespan,
 )
 
@@ -251,16 +260,40 @@ def start_training(request: Request, body: TrainingRequest):
 def priorities(request: Request, body: PriorityRequest):
     runtime: ModelRuntime = request.app.state.runtime
     try:
+        source_ids = list(dict.fromkeys(
+            ([body.person_id] if body.person_id else []) + (body.person_ids or [])
+        ))
+        if not source_ids:
+            raise ValueError("person_id or person_ids must contain at least one source person")
+        if len(source_ids) > 20:
+            raise ValueError("at most 20 source people can be ranked together")
         runtime.refresh_if_due()
         trained_graph, prepared, model, seed, record = runtime.snapshot()
         live_graph = normalize_graph(fetch_graph(request.app.state.settings))
         graph = overlay_live_task_fields(trained_graph, live_graph)
-        person = resolve_person(graph, body.person_id)
-        candidates = two_hop_task_ids(graph, body.person_id, hops=2)
+        source_people = [resolve_person(graph, person_id) for person_id in source_ids]
+        receiver = (
+            resolve_person(graph, body.receiver_person_id)
+            if body.receiver_person_id
+            else None
+        )
+        if receiver and receiver["id"] in source_ids:
+            raise ValueError("receiver_person_id must differ from source person_ids")
+        candidates = direct_task_ids(graph, source_ids)
         if not candidates:
             return {
-                "person_id": body.person_id,
-                "person_name": person.get("name"),
+                "person_id": source_ids[0] if len(source_ids) == 1 else None,
+                "person_name": source_people[0].get("name") if len(source_ids) == 1 else None,
+                "source_people": [
+                    {"person_id": person["id"], "person_name": person.get("name")}
+                    for person in source_people
+                ],
+                "receiver": (
+                    {"person_id": receiver["id"], "person_name": receiver.get("name")}
+                    if receiver
+                    else None
+                ),
+                "candidate_scope": "direct_1hop_active_tasks",
                 "model_trained_at": record["trained_at"],
                 "rankings": {},
             }
@@ -268,14 +301,14 @@ def priorities(request: Request, body: PriorityRequest):
         impact, _removed_edges = task_impact_scores(
             model,
             prepared,
-            body.person_id,
+            source_ids,
             runtime.device,
             seed,
         )
         missing = [task_id for task_id in candidates if task_id not in impact]
         if missing:
             raise RuntimeError(f"model did not score candidate tasks: {missing}")
-        rankings = rank_tasks(graph, body.person_id, candidates, impact)
+        rankings = rank_tasks(graph, source_ids, candidates, impact)
     except KeyError as error:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
     except ValueError as error:
@@ -290,8 +323,18 @@ def priorities(request: Request, body: PriorityRequest):
         ) from error
 
     return {
-        "person_id": body.person_id,
-        "person_name": person.get("name"),
+        "person_id": source_ids[0] if len(source_ids) == 1 else None,
+        "person_name": source_people[0].get("name") if len(source_ids) == 1 else None,
+        "source_people": [
+            {"person_id": person["id"], "person_name": person.get("name")}
+            for person in source_people
+        ],
+        "receiver": (
+            {"person_id": receiver["id"], "person_name": receiver.get("name")}
+            if receiver
+            else None
+        ),
+        "candidate_scope": "direct_1hop_active_tasks",
         "model_trained_at": record["trained_at"],
         "rankings": {row["task_id"]: row for row in rankings},
     }

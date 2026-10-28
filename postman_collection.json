@@ -16,6 +16,14 @@
     {
       "key": "PERSON_ID",
       "value": "U0C22C8M742"
+    },
+    {
+      "key": "SECOND_PERSON_ID",
+      "value": "U0C1M3Q1PRV"
+    },
+    {
+      "key": "RECEIVER_PERSON_ID",
+      "value": "U0C20G9MRML"
     }
   ],
   "item": [
@@ -96,7 +104,35 @@
           }
         },
         "url": "{{MODEL_API_URL}}/v1/priorities",
-        "description": "person_id의 2-hop 범위에 연결된 미완료 Task를 task_id별 우선순위로 반환합니다."
+        "description": "person_id와 직접 역할 edge로 연결된 활성 1-hop Task를 task_id별 우선순위로 반환합니다."
+      }
+    },
+    {
+      "name": "5. Get Combined Task Priorities",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{MODEL_API_KEY}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"person_ids\": [\"{{PERSON_ID}}\", \"{{SECOND_PERSON_ID}}\"],\n  \"receiver_person_id\": \"{{RECEIVER_PERSON_ID}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{MODEL_API_URL}}/v1/priorities",
+        "description": "여러 source person을 동시에 제거하고 직접 1-hop Task 합집합을 통합 정렬합니다."
       }
     }
   ]

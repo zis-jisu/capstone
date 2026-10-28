@@ -1,6 +1,6 @@
 # Handover R-GAE API
 
-Supabase 최신 mock 테이블을 그래프로 변환해 R-GAE 모델을 학습하고, 인수인계자의 `person_id`를 기준으로 2-hop 범위의 미완료 Task 우선순위를 반환하는 FastAPI 서비스입니다.
+Supabase 최신 mock 테이블을 그래프로 변환해 역할 edge 가중 R-GAE를 학습하고, 한 명 또는 여러 인계 대상자의 직접 1-hop Task를 통합 우선순위로 반환하는 FastAPI 서비스입니다.
 
 ## 동작 흐름
 
@@ -10,7 +10,7 @@ Supabase mock tables
   -> POST /v1/training: 필요할 때 1회 학습
   -> Supabase Storage: models/latest.pt 저장
   -> Railway FastAPI
-  -> Postman 또는 클라이언트가 person_id 전달
+  -> Postman 또는 클라이언트가 person_id 또는 person_ids 전달
   -> task_id별 우선순위 반환
 ```
 
@@ -43,6 +43,17 @@ X-API-Key: <MODEL_API_KEY>
 {"person_id":"U0C22C8M742"}
 ```
 
+여러 사람의 업무를 한 수신자가 함께 인수하는 요청도 지원합니다.
+
+```json
+{
+  "person_ids": ["U0C22C8M742", "U0C1M3Q1PRV"],
+  "receiver_person_id": "U0C20G9MRML"
+}
+```
+
+`receiver_person_id`는 응답 메타데이터에만 사용합니다. 인수 전 위험을 계산할 때 수신자 edge를 미리 추가하지 않습니다.
+
 응답의 `rankings`는 `task_id`별 객체입니다. 완료된 Task는 제외되며 후보가 없으면 빈 객체를 반환합니다.
 
 ```json
@@ -58,13 +69,17 @@ X-API-Key: <MODEL_API_KEY>
       "final_priority_rank": 1,
       "final_priority_score": 87.4,
       "deadline_score": 95.0,
-      "model_score": 82.0,
-      "relation_score": 100.0,
-      "workflow_score": 60.0
+      "structure_score": 82.0,
+      "workflow_score": 60.0,
+      "related_only": false,
+      "related_penalty": 0.0,
+      "source_person_ids": ["U0C22C8M742"]
     }
   }
 }
 ```
+
+학습 edge 계수는 `APPROVER 31 / OWNER 27 / REVIEWER 21 / COLLABORATOR 17 / RELATED 4`이며 기타 관계는 중립 계수 15를 사용합니다. 최종 점수는 `구조 55 + 유효 마감 30 + 연속성 15 - RELATED-only 10`입니다.
 
 ### 학습
 
@@ -94,7 +109,7 @@ RGAE_DEVICE=cpu
 
 ## Railway 배포
 
-GitHub `zis-jisu/capstone` 저장소의 `ml` 브랜치를 소스로 사용합니다.
+GitHub `zis-jisu/capstone` 저장소의 `slack` 브랜치를 소스로 사용합니다.
 
 1. API 서비스
    - Start Command: Dockerfile 기본 명령

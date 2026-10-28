@@ -7,6 +7,17 @@ from typing import Any
 
 
 COMPLETED_STATUSES = {"completed", "complete", "done", "closed", "finished"}
+HANDOFF_RELATIONS = {
+    "APPROVES",
+    "APPROVER",
+    "RESPONSIBLE_FOR",
+    "OWNER",
+    "REVIEWS",
+    "REVIEWER",
+    "CONTRIBUTES_TO",
+    "COLLABORATOR",
+    "RELATED",
+}
 
 
 def normalize_graph(raw: dict[str, Any]) -> dict[str, Any]:
@@ -124,4 +135,32 @@ def two_hop_task_ids(
         if str(node_by_id[node_id].get("type", "")).lower() == "task"
         and not is_completed(node_by_id[node_id])
     )
+
+
+def direct_task_ids(
+    graph: dict[str, Any], person_ids: list[str]
+) -> list[str]:
+    """Return the active 1-hop role Tasks connected to any source person."""
+    if not person_ids:
+        raise ValueError("at least one source person_id is required")
+    node_by_id = {node["id"]: node for node in graph["nodes"]}
+    source_ids = set(person_ids)
+    missing = sorted(source_ids - set(node_by_id))
+    if missing:
+        raise KeyError(f"person_id does not exist in the trained graph: {missing}")
+
+    task_ids: set[str] = set()
+    for edge in graph["edges"]:
+        if edge["relation"] not in HANDOFF_RELATIONS:
+            continue
+        source, target = edge["source"], edge["target"]
+        task_id = None
+        if source in source_ids:
+            task_id = target
+        elif target in source_ids:
+            task_id = source
+        task = node_by_id.get(task_id or "")
+        if task and str(task.get("type", "")).lower() == "task" and not is_completed(task):
+            task_ids.add(task["id"])
+    return sorted(task_ids)
 
