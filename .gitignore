@@ -16,5 +16,3 @@ src/slack/collected/
 evaluation/predictions/
 
 handover_runs/
-*.pt
-node_modules/
