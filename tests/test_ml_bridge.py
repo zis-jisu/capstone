@@ -5,9 +5,25 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from src import ml_bridge
+from src import demo_frontend
 
 
 class MlBridgePriorityTests(unittest.TestCase):
+    def test_sequential_approvals_accumulate_sources_without_duplicates(self):
+        approvals = [
+            {"source_person_id": "U_KIM"},
+            {"source_person_id": "U_PARK"},
+            {"source_person_id": "U_KIM"},
+        ]
+        with patch.object(demo_frontend, "_handover_db", return_value=approvals) as handovers:
+            sources = demo_frontend._approved_handoff_source_ids("U_WON")
+        self.assertEqual(sources, ["U_KIM", "U_PARK"])
+        self.assertEqual(handovers.call_args.kwargs["params"], {
+            "select": "source_person_id",
+            "requester_id": "eq.U_WON",
+            "status": "eq.approved",
+        })
+
     def test_multi_source_payload_is_deduplicated_and_has_receiver(self):
         response = io.BytesIO(b'{"rankings": {}}')
         with patch.object(ml_bridge, "_open", return_value=response) as opened:

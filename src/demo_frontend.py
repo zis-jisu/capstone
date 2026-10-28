@@ -659,6 +659,18 @@ def _handover_db(method='GET', params=None, payload=None):
     except urllib.error.URLError:
         raise HTTPException(502, 'Handover database unreachable') from None
 
+
+def _approved_handoff_source_ids(receiver_id):
+    """Return every cumulatively approved source for one receiver, once."""
+    approved = _handover_db(params={
+        'select': 'source_person_id',
+        'requester_id': 'eq.' + receiver_id,
+        'status': 'eq.approved',
+    })
+    return list(dict.fromkeys(
+        row['source_person_id'] for row in approved if row.get('source_person_id')
+    ))
+
 @app.get('/api/demo/auth/config')
 def demo_auth_config(_=Depends(demo_auth)):
     return {'verified_mode': slack_login_enabled(), 'provider': 'slack'}
@@ -753,14 +765,7 @@ def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(
             # requester has already been approved. Repeated Works from the same
             # source do not duplicate that source's Tasks.
             receiver_id = updated[0]['requester_id']
-            approved = _handover_db(params={
-                'select': 'source_person_id',
-                'requester_id': 'eq.' + receiver_id,
-                'status': 'eq.approved',
-            })
-            source_ids = list(dict.fromkeys(
-                row['source_person_id'] for row in approved if row.get('source_person_id')
-            ))
+            source_ids = _approved_handoff_source_ids(receiver_id)
             priority_result = ml_bridge.priorities(
                 person_ids=source_ids,
                 receiver_person_id=receiver_id,
