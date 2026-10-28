@@ -184,11 +184,21 @@
 
   window.linkingSetOwnerTab=owner=>{
     window.linkingOwnerTab=['all','김지수','박보검'].includes(owner)?owner:'all';
+    window.linkingTaskPriorityPage=1;
     window.linkingSelectedFlowTaskId=null;
     window.linkingSelectedFlowTaskWork=null;
     window.linkingSelectedWorkId=null;
     const detail=root.getElementById('briefing-task-section');
     if(detail)detail.style.display='none';
+    renderPriorityOverview();
+  };
+  window.linkingSetPriorityView=view=>{
+    window.linkingPriorityView=view==='task'?'task':'work';
+    window.linkingTaskPriorityPage=1;
+    renderPriorityOverview();
+  };
+  window.linkingSetTaskPriorityPage=page=>{
+    window.linkingTaskPriorityPage=Math.max(1,Number(page)||1);
     renderPriorityOverview();
   };
   renderPriorityOverview = function () {
@@ -220,6 +230,10 @@
     window.linkingPriorityItems=items;
     const pct=item=>item.tasks.length?Math.round(item.done/item.tasks.length*100):0;
     const style=t=>status(t)==='done'?{bg:'#E5F5EA',fg:'#27834A',label:'완료',icon:'check_circle'}:status(t)==='active'?{bg:'#E7F0FF',fg:'#236AD6',label:'진행 중',icon:'play_circle'}:status(t)==='waiting'?{bg:'#FFF3E0',fg:'#A35C00',label:'대기',icon:'schedule'}:{bg:'#F1F3F6',fg:'#697586',label:t.status||'미확인',icon:'radio_button_unchecked'};
+    const priorityView=window.linkingPriorityView==='task'?'task':'work';
+    const viewToggle='<div role="group" aria-label="업무 보기 방식" class="inline-flex rounded-xl border border-[#DDE3EA] bg-[#F5F7FA] p-1">'+
+      '<button type="button" onclick="linkingSetPriorityView(\'work\')" aria-pressed="'+String(priorityView==='work')+'" class="rounded-lg px-4 py-2 text-[12px] font-bold transition '+(priorityView==='work'?'bg-[#315FF4] text-white shadow-sm':'text-[#6B7684] hover:text-[#333D4B]')+'">Work 흐름</button>'+
+      '<button type="button" onclick="linkingSetPriorityView(\'task\')" aria-pressed="'+String(priorityView==='task')+'" class="rounded-lg px-4 py-2 text-[12px] font-bold transition '+(priorityView==='task'?'bg-[#315FF4] text-white shadow-sm':'text-[#6B7684] hover:text-[#333D4B]')+'">Task 우선순위</button></div>';
     const flowOrder=item=>{
       // Kahn ordering of only grounded prerequisite links. Unlinked tasks are not presented as a sequential chain.
       const ids=new Set(item.tasks.map(x=>x.id));
@@ -296,6 +310,15 @@
         window.linkingSelectFlowTask(trigger.getAttribute('data-flow-task-id'));
       });
     }
+    if(!window.linkingPriorityTableClickBound){
+      window.linkingPriorityTableClickBound=true;
+      root.addEventListener('click',event=>{
+        const trigger=event.target.closest?.('[data-priority-task-id]');
+        if(!trigger)return;
+        event.preventDefault();
+        window.linkingSelectFlowTask(trigger.getAttribute('data-priority-task-id'));
+      });
+    }
     window.linkingShowPriorityTasks=i=>{
       const item=window.linkingPriorityItems?.[i],panel=root.getElementById('work-priority-tasks');
       if(!item||!panel)return;
@@ -341,16 +364,41 @@
       const detail=root.getElementById('briefing-task-section');
       if(detail)detail.style.display='none';
     }
-    area.innerHTML='<div class="flex items-center justify-between gap-3"><h2 class="text-[17px] font-bold">업무 진행 흐름</h2><span class="text-[11px] text-[#8B95A1]">Work 선택 · Task 클릭 시 상세 표시</span></div>'+ 
-      '<div class="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4"><div class="lg:col-span-2 space-y-2">'+items.map((item,i)=>
-      '<div data-work-priority="'+i+'" class="rounded-xl border border-[#E5E8EB] bg-white hover:border-[#3182F6]"><button type="button" onclick="linkingChooseWork('+i+')" class="w-full p-3 text-left" aria-label="'+esc(item.work.name)+' 흐름 보기"><div class="flex items-start justify-between gap-2"><div class="min-w-0 text-[13px] leading-5 font-bold">'+(i+1)+'. '+esc(item.work.name)+'</div><span class="shrink-0 text-[11px] font-semibold text-[#3182F6]">'+(item.rank!=null?item.rank+'위 · ':'')+round(item.score)+'</span></div><div class="mt-3 flex items-center gap-3"><div class="h-1.5 flex-1 rounded-full bg-[#E8EBF0] overflow-hidden"><div class="h-full rounded-full bg-[#438763]" style="width:'+pct(item)+'%"></div></div><span class="text-[11px] shrink-0 text-[#6B7684]">완료 '+item.done+'/'+item.tasks.length+'</span></div></button></div>').join('')+
-      '</div><div id="work-priority-tasks" class="lg:col-span-3 rounded-xl border border-[#EDF0F4] bg-[#FAFBFC] p-4"><p class="text-[12px] text-[#8B95A1]">Work를 선택하면 Task 흐름이 표시돼요.</p></div></div>';
-    if(items.length){
+    const heading='<div class="flex flex-wrap items-center justify-between gap-3"><div><h2 class="text-[17px] font-bold">'+(priorityView==='task'?'Task 우선순위':'업무 진행 흐름')+'</h2><p class="mt-1 text-[11px] text-[#8B95A1]">'+(priorityView==='task'?'인수받은 Task를 우선순위가 높은 순서로 보여드립니다.':'Work 선택 · Task 클릭 시 아래 상세 표시')+'</p></div>'+viewToggle+'</div>';
+    if(priorityView==='task'){
+      const taskRows=items.flatMap(item=>item.tasks.filter(row=>status(row.task)!=='done'&&(!state.filter||row.task.type===state.filter)).map(row=>({
+        id:row.id,task:row.task,work:item.work,sources:grantedSources[item.work.id]||[],rank:getRank(row.task),score:getScore(row.task),originalIndex:item.work.tasks.indexOf(row.id)
+      }))).sort((a,b)=>{
+        if(a.rank!=null&&b.rank!=null&&a.rank!==b.rank)return a.rank-b.rank;
+        if((a.rank!=null)!==(b.rank!=null))return a.rank!=null?-1:1;
+        if(a.score!=null&&b.score!=null&&a.score!==b.score)return b.score-a.score;
+        if((a.score!=null)!==(b.score!=null))return a.score!=null?-1:1;
+        return a.work.name.localeCompare(b.work.name,'ko')||a.originalIndex-b.originalIndex;
+      });
+      window.linkingPriorityTaskRows=taskRows;
+      const pageSize=5,pageCount=Math.max(1,Math.ceil(taskRows.length/pageSize));
+      const page=Math.min(pageCount,Math.max(1,Number(window.linkingTaskPriorityPage)||1));
+      window.linkingTaskPriorityPage=page;
+      const pageRows=taskRows.slice((page-1)*pageSize,page*pageSize);
+      const rows=pageRows.map((row,index)=>{
+        const st=style(row.task),displayRank=row.rank??((page-1)*pageSize+index+1),sourceLabel=row.sources.join(' · ')||'인계자 미확인';
+        const priority=row.score!=null?Math.round(row.score)+'점':row.rank!=null?row.rank+'위':'미산정';
+        return '<button type="button" data-priority-task-id="'+esc(row.id)+'" class="grid w-full min-w-[760px] grid-cols-[64px_minmax(260px,1fr)_120px_100px_100px_150px] items-center gap-3 border-t border-[#EEF0F3] px-4 py-4 text-left transition hover:bg-[#F7F9FF] focus:bg-[#F2F6FF] focus:outline-none"><span class="flex h-9 w-9 items-center justify-center rounded-full bg-[#F1F3F5] text-[13px] font-bold text-[#333D4B]">'+displayRank+'</span><span class="min-w-0"><strong class="block truncate text-[13px] text-[#191F28]">'+esc(row.task.name)+'</strong><span class="mt-1 block truncate text-[11px] text-[#8B95A1]">'+esc(row.work.name)+'</span></span><span class="truncate text-[12px] text-[#4E5968]">'+esc(sourceLabel)+'</span><span class="justify-self-start rounded-full border px-3 py-1.5 text-[11px] font-bold" style="background:'+st.bg+';color:'+st.fg+';border-color:'+st.fg+'40">'+esc(st.label)+'</span><strong class="text-[13px] '+(row.score!=null?'text-[#E5484D]':'text-[#6B7684]')+'">'+priority+'</strong><span class="flex items-center justify-between gap-2 text-[11px] text-[#4E5968]"><span class="truncate">'+esc(row.task.deadline||'미정')+'</span><span class="material-symbols-outlined text-[17px] text-[#8B95A1]">chevron_right</span></span></button>';
+      }).join('')||'<div class="px-6 py-16 text-center text-[13px] text-[#8B95A1]">표시할 미완료 Task가 없습니다.</div>';
+      const pages=Array.from({length:pageCount},(_,i)=>i+1).map(number=>'<button type="button" onclick="linkingSetTaskPriorityPage('+number+')" aria-current="'+(number===page?'page':'false')+'" class="h-8 min-w-8 rounded-lg px-2 text-[12px] font-bold '+(number===page?'bg-[#315FF4] text-white':'text-[#6B7684] hover:bg-[#F2F4F6]')+'">'+number+'</button>').join('');
+      area.innerHTML=heading+'<div class="mt-4 overflow-hidden rounded-xl border border-[#E5E8EB] bg-white"><div class="overflow-x-auto"><div class="grid min-w-[760px] grid-cols-[64px_minmax(260px,1fr)_120px_100px_100px_150px] gap-3 bg-[#F8F9FB] px-4 py-3 text-[11px] font-semibold text-[#6B7684]"><span>순위</span><span>Work | Task</span><span>인계자</span><span>상태</span><span>우선순위</span><span>마감</span></div>'+rows+'</div></div>'+
+        '<div class="mt-4 flex flex-wrap items-center justify-between gap-3"><span class="text-[11px] text-[#8B95A1]">총 '+taskRows.length+'건 · 페이지당 5건</span><nav aria-label="Task 우선순위 페이지" class="flex items-center gap-1"><button type="button" onclick="linkingSetTaskPriorityPage('+(page-1)+')" '+(page===1?'disabled':'')+' class="h-8 rounded-lg px-3 text-[11px] font-bold text-[#6B7684] hover:bg-[#F2F4F6] disabled:cursor-not-allowed disabled:opacity-35">이전</button>'+pages+'<button type="button" onclick="linkingSetTaskPriorityPage('+(page+1)+')" '+(page===pageCount?'disabled':'')+' class="h-8 rounded-lg px-3 text-[11px] font-bold text-[#6B7684] hover:bg-[#F2F4F6] disabled:cursor-not-allowed disabled:opacity-35">다음</button></nav></div>';
+    }else{
+      area.innerHTML=heading+'<div class="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4"><div class="lg:col-span-2 space-y-2">'+items.map((item,i)=>
+        '<div data-work-priority="'+i+'" class="rounded-xl border border-[#E5E8EB] bg-white hover:border-[#3182F6]"><button type="button" onclick="linkingChooseWork('+i+')" class="w-full p-3 text-left" aria-label="'+esc(item.work.name)+' 흐름 보기"><div class="flex items-start justify-between gap-2"><div class="min-w-0 text-[13px] leading-5 font-bold">'+(i+1)+'. '+esc(item.work.name)+'</div><span class="shrink-0 text-[11px] font-semibold text-[#3182F6]">'+(item.rank!=null?item.rank+'위 · ':'')+round(item.score)+'</span></div><div class="mt-3 flex items-center gap-3"><div class="h-1.5 flex-1 rounded-full bg-[#E8EBF0] overflow-hidden"><div class="h-full rounded-full bg-[#438763]" style="width:'+pct(item)+'%"></div></div><span class="text-[11px] shrink-0 text-[#6B7684]">완료 '+item.done+'/'+item.tasks.length+'</span></div></button></div>').join('')+
+        '</div><div id="work-priority-tasks" class="lg:col-span-3 rounded-xl border border-[#EDF0F4] bg-[#FAFBFC] p-4"><p class="text-[12px] text-[#8B95A1]">Work를 선택하면 Task 흐름이 표시돼요.</p></div></div>';
+    }
+    if(priorityView==='work'&&items.length){
       const requested=window.linkingSelectedWorkId||(state.project!=='all'?state.project:null);
       const position=items.findIndex(item=>item.work.id===requested);
       window.linkingShowPriorityTasks(position>=0?position:0);
-    }else{
-      area.innerHTML='<div class="rounded-xl bg-[#F8F9FA] px-6 py-14 text-center"><div class="text-[16px] font-bold text-[#333D4B]">'+html(ownerTab==='all'?'인수받은 업무가 없습니다.':ownerTab+'님에게 인수받은 업무가 없습니다.')+'</div><p class="mt-2 text-[12px] text-[#8B95A1]">승인된 인수인계 Work가 없습니다.</p></div>';
+    }else if(priorityView==='work'&&!items.length){
+      area.innerHTML=heading+'<div class="mt-4 rounded-xl bg-[#F8F9FA] px-6 py-14 text-center"><div class="text-[16px] font-bold text-[#333D4B]">'+html(ownerTab==='all'?'인수받은 업무가 없습니다.':ownerTab+'님에게 인수받은 업무가 없습니다.')+'</div><p class="mt-2 text-[12px] text-[#8B95A1]">승인된 인수인계 Work가 없습니다.</p></div>';
     }
   };
 
