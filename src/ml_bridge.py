@@ -67,10 +67,20 @@ def training_status():
     with _open("/v1/training") as response:
         return json.load(response)
 
-def priorities(person_id):
-    if not person_id:
-        raise HTTPException(422, "person_id is required")
-    with _open("/v1/priorities", method="POST", payload={"person_id": person_id}, timeout=90) as response:
+def priorities(person_id=None, *, person_ids=None, receiver_person_id=None):
+    """Request one ranking over every source person's direct handoff tasks."""
+    sources = []
+    for source_id in person_ids or ([person_id] if person_id else []):
+        if source_id and source_id not in sources:
+            sources.append(source_id)
+    if not sources:
+        raise HTTPException(422, "person_id or person_ids is required")
+    payload = {"person_id": sources[0]} if len(sources) == 1 and not receiver_person_id else {
+        "person_ids": sources,
+    }
+    if receiver_person_id:
+        payload["receiver_person_id"] = receiver_person_id
+    with _open("/v1/priorities", method="POST", payload=payload, timeout=90) as response:
         return json.load(response)
 
 def stream_training():

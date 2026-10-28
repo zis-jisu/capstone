@@ -344,7 +344,9 @@ def _db_assignments(method='GET', params=None, rows=None):
 from src import ml_bridge
 
 class PriorityBody(BaseModel):
-    person_id: str = Field(pattern=r'^U[A-Z0-9]+$', max_length=40)
+    person_id: str | None = Field(default=None, pattern=r'^U[A-Z0-9]+$', max_length=40)
+    person_ids: list[str] | None = Field(default=None, max_length=20)
+    receiver_person_id: str | None = Field(default=None, pattern=r'^U[A-Z0-9]+$', max_length=40)
 
 
 @app.get('/api/ml/training')
@@ -359,7 +361,11 @@ def ml_start_training(_=Depends(admin_auth)):
 
 @app.post('/api/ml/priorities')
 def ml_priorities(body: PriorityBody, _=Depends(demo_auth)):
-    return ml_bridge.priorities(body.person_id)
+    return ml_bridge.priorities(
+        body.person_id,
+        person_ids=body.person_ids,
+        receiver_person_id=body.receiver_person_id,
+    )
 
 
 class WorkSyncRequest(BaseModel):
@@ -743,10 +749,22 @@ def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(
     priority_error = None
     if body.status == 'approved':
         try:
-            # Approval is already committed. Calculate for the actual approver
-            # (the source person whose Tasks are being handed over) and return
-            # the result in the same response for frontend storage.
-            priority_result = ml_bridge.priorities(updated[0]['approved_by'])
+            # Rank one combined queue over every person whose handover to this
+            # requester has already been approved. Repeated Works from the same
+            # source do not duplicate that source's Tasks.
+            receiver_id = updated[0]['requester_id']
+            approved = _handover_db(params={
+                'select': 'source_person_id',
+                'requester_id': 'eq.' + receiver_id,
+                'status': 'eq.approved',
+            })
+            source_ids = list(dict.fromkeys(
+                row['source_person_id'] for row in approved if row.get('source_person_id')
+            ))
+            priority_result = ml_bridge.priorities(
+                person_ids=source_ids,
+                receiver_person_id=receiver_id,
+            )
         except HTTPException as exc:
             priority_error = str(exc.detail)
         except Exception:

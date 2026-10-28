@@ -1,6 +1,8 @@
-# Handover R-GAE API
+# AI Capstone - Slack 인수인계와 R-GAE
 
-Supabase 최신 mock 테이블을 그래프로 변환해 역할 edge 가중 R-GAE를 학습하고, 한 명 또는 여러 인계 대상자의 직접 1-hop Task를 통합 우선순위로 반환하는 FastAPI 서비스입니다.
+`slack` 브랜치는 Slack → Event → Task → Work 파이프라인과 R-GAE 우선순위 서비스를 함께 관리합니다. 통합 앱은 `src/`와 `railway.json`, ML 서비스는 `rgae_service/`와 `Dockerfile`을 사용합니다. Railway에서는 두 서비스를 같은 브랜치에 연결하되 각각 기존 통합 앱 Start Command와 ML Dockerfile을 사용합니다.
+
+ML 서비스는 Supabase 최신 mock 테이블을 그래프로 변환해 역할 edge 가중 R-GAE를 학습하고, 한 명 또는 여러 인계 대상자의 직접 1-hop Task를 하나의 인수자용 통합 우선순위로 반환합니다.
 
 ## 동작 흐름
 
@@ -27,6 +29,7 @@ Supabase mock tables
 | `rgae_service/priority.py` | 최종 Task 우선순위 계산 |
 | `sql/get_graph_snapshot.sql` | Supabase RPC 백업·재설치·버전관리용 SQL |
 | `Dockerfile` | Railway 컨테이너 빌드 |
+| `requirements-ml.txt` | ML 서비스 전용 의존성 |
 | `.env.example` | 필요한 환경변수 목록 |
 
 `sql/get_graph_snapshot.sql`은 Railway가 실행하거나 읽는 파일이 아닙니다. Supabase SQL Editor에 RPC를 최초 설치하거나 복구할 때만 사용합니다. 운영 중에는 Python 서버가 이미 등록된 RPC를 API로 호출합니다.
