@@ -10,7 +10,15 @@ import torch
 
 from .config import Settings
 from .graph import graph_digest, normalize_graph
-from .model import build_model, prepare_graph, resolve_device, set_seed, train_model
+from .model import (
+    OTHER_RELATION_WEIGHT,
+    ROLE_EDGE_WEIGHTS,
+    build_model,
+    prepare_graph,
+    resolve_device,
+    set_seed,
+    train_model,
+)
 from .repository import fetch_graph, upload_model
 
 if TYPE_CHECKING:
@@ -42,7 +50,7 @@ def train_once(
     )
     trained_at = datetime.now(timezone.utc).isoformat()
     artifact = {
-        "format_version": 3,
+        "format_version": 4,
         "model_state_dict": model.cpu().state_dict(),
         "graph": graph,
         "graph_sha256": digest,
@@ -55,6 +63,8 @@ def train_once(
         "trained_at": trained_at,
         "trigger": trigger,
         "final_loss": final_loss,
+        "role_edge_weights": ROLE_EDGE_WEIGHTS,
+        "other_relation_weight": OTHER_RELATION_WEIGHT,
     }
 
     with tempfile.TemporaryDirectory() as temporary_dir:

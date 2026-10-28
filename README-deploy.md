@@ -1,6 +1,6 @@
 # R-GAE 모델 API 배포
 
-Supabase mock 테이블을 `get_graph_snapshot()` RPC로 읽어 R-GAE를 학습하고, 프론트에서 받은 `person_id`의 2-hop 미완료 Task 전체 순위를 반환합니다.
+Supabase mock 테이블을 `get_graph_snapshot()` RPC로 읽어 역할 edge 가중 R-GAE를 학습하고, 프론트에서 받은 한 명 또는 여러 명의 `person_id`에 대한 직접 1-hop Task 통합 순위를 반환합니다.
 
 ## API
 
@@ -8,7 +8,7 @@ Supabase mock 테이블을 `get_graph_snapshot()` RPC로 읽어 R-GAE를 학습�
 |---|---|---|
 | `POST` | `/v1/training` | 최신 Supabase 그래프로 학습하며 NDJSON 진행 로그 전송 |
 | `GET` | `/v1/training` | 학습 상태와 최신 성공 학습일 조회 |
-| `POST` | `/v1/priorities` | `person_id`의 미완료 Task 순위 반환 |
+| `POST` | `/v1/priorities` | 단일 또는 다중 인계 대상자의 1-hop Task 통합 순위 반환 |
 | `GET` | `/health` | Railway health check |
 
 ### 학습 시작
@@ -30,6 +30,17 @@ curl -X POST "$MODEL_API_URL/v1/priorities" \
   -H "X-API-Key: $MODEL_API_KEY" \
   -d '{"person_id":"U0C22C8M742"}'
 ```
+
+다중 인수인계 요청:
+
+```bash
+curl -X POST "$MODEL_API_URL/v1/priorities" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $MODEL_API_KEY" \
+  -d '{"person_ids":["U0C22C8M742","U0C1M3Q1PRV"],"receiver_person_id":"U0C20G9MRML"}'
+```
+
+역할 edge 계수는 `APPROVER 31 / OWNER 27 / REVIEWER 21 / COLLABORATOR 17 / RELATED 4`, 기타 관계는 15입니다. 최종 점수는 `구조 55 + 유효 마감 30 + 연속성 15 - RELATED-only 10`입니다.
 
 완료 상태 Task는 최신 Supabase 값으로 제외됩니다. 학습 후 새로 생긴 Node와 Edge는 다음 학습부터 모델에 포함됩니다.
 
@@ -72,8 +83,8 @@ uvicorn rgae_service.api:app --host 0.0.0.0 --port 8000
 
 ## Railway 배포
 
-1. GitHub `zis-jisu/capstone` 저장소의 `ml` 브랜치로 push합니다.
-2. Railway에서 **Deploy from GitHub repo**를 선택하고 branch를 `ml`로 지정합니다.
+1. GitHub `zis-jisu/capstone` 저장소의 `slack` 브랜치로 push합니다.
+2. Railway에서 **Deploy from GitHub repo**를 선택하고 branch를 `slack`으로 지정합니다.
 3. Variables에 `.env.example` 항목을 등록합니다.
 4. Networking에서 API용 public domain을 생성합니다.
 

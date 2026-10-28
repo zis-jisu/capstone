@@ -11,6 +11,22 @@ import torch.nn.functional as F
 from torch_geometric.nn import RGCNConv
 
 
+# Integer 100-point distribution validated on masked-edge reconstruction.
+# OTHER_RELATION_WEIGHT keeps non-role edges near the original neutral 1.0 ratio.
+ROLE_EDGE_WEIGHTS = {
+    "APPROVES": 31,
+    "APPROVER": 31,
+    "RESPONSIBLE_FOR": 27,
+    "OWNER": 27,
+    "REVIEWS": 21,
+    "REVIEWER": 21,
+    "CONTRIBUTES_TO": 17,
+    "COLLABORATOR": 17,
+    "RELATED": 4,
+}
+OTHER_RELATION_WEIGHT = 15
+
+
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -45,6 +61,10 @@ def prepare_graph(graph: dict[str, Any], seed: int) -> dict[str, Any]:
     )
     edge_type = torch.tensor(
         [relation_to_idx[edge["relation"]] for edge in edges], dtype=torch.long
+    )
+    relation_weight_vector = torch.tensor(
+        [ROLE_EDGE_WEIGHTS.get(name, OTHER_RELATION_WEIGHT) for name in relation_names],
+        dtype=torch.float32,
     )
 
     node_types = sorted({node["type"] for node in nodes})
@@ -97,6 +117,8 @@ def prepare_graph(graph: dict[str, Any], seed: int) -> dict[str, Any]:
         "relation_names": relation_names,
         "edge_index": edge_index,
         "edge_type": edge_type,
+        "edge_weight": relation_weight_vector[edge_type],
+        "relation_weight_vector": relation_weight_vector,
         "x": features,
         "node_type_by_idx": node_type_by_idx,
         "nodes_by_type": nodes_by_type,
@@ -177,7 +199,15 @@ def train_model(
         negative_logits = model.decode(z, negative_index, negative_type)
         logits = torch.cat([positive_logits, negative_logits])
         labels = torch.cat([torch.ones_like(positive_logits), torch.zeros_like(negative_logits)])
-        loss = F.binary_cross_entropy_with_logits(logits, labels)
+        losses = F.binary_cross_entropy_with_logits(logits, labels, reduction="none")
+        sample_weights = torch.cat(
+            [
+                prepared["edge_weight"],
+                prepared["relation_weight_vector"][negative_type.cpu()],
+            ]
+        ).to(device)
+        sample_weights = sample_weights / sample_weights.mean().clamp_min(1e-8)
+        loss = (losses * sample_weights).mean()
         loss.backward()
         optimizer.step()
         final_loss = float(loss.item())
@@ -193,16 +223,22 @@ def train_model(
 def task_impact_scores(
     model: RelationalGraphAutoencoder,
     prepared: dict[str, Any],
-    person_id: str,
+    person_ids: str | list[str],
     device: torch.device,
     seed: int,
 ) -> tuple[dict[str, dict[str, float]], int]:
-    person_idx = prepared["node_to_idx"][person_id]
+    if isinstance(person_ids, str):
+        person_ids = [person_ids]
+    if not person_ids:
+        raise ValueError("at least one source person_id is required")
+    person_indices = [prepared["node_to_idx"][person_id] for person_id in person_ids]
     edge_index, edge_type, x = prepared["edge_index"], prepared["edge_type"], prepared["x"]
-    keep = (edge_index[0] != person_idx) & (edge_index[1] != person_idx)
+    keep = torch.ones(edge_index.shape[1], dtype=torch.bool)
+    for person_idx in person_indices:
+        keep &= (edge_index[0] != person_idx) & (edge_index[1] != person_idx)
     counterfactual_index, counterfactual_type = edge_index[:, keep], edge_type[keep]
     x_counterfactual = x.clone()
-    x_counterfactual[person_idx] = 0.0
+    x_counterfactual[person_indices] = 0.0
     negative_index, negative_type = sample_negative_edges(prepared, seed + 1000)
 
     model.eval()
@@ -213,7 +249,7 @@ def task_impact_scores(
             counterfactual_index.to(device),
             counterfactual_type.to(device),
         )
-        counterfactual_z[person_idx] = 0.0
+        counterfactual_z[person_indices] = 0.0
         evaluation_index = torch.cat([edge_index, negative_index], dim=1).to(device)
         evaluation_type = torch.cat([edge_type, negative_type]).to(device)
         labels = torch.cat(
@@ -225,25 +261,37 @@ def task_impact_scores(
         counterfactual_error = F.binary_cross_entropy_with_logits(
             model.decode(counterfactual_z, evaluation_index, evaluation_type), labels, reduction="none"
         ).cpu()
+    evaluation_weights = torch.cat(
+        [
+            prepared["edge_weight"],
+            prepared["relation_weight_vector"][negative_type],
+        ]
+    )
 
     task_indices = {
         index for index, node in enumerate(prepared["nodes"]) if node["type"] == "Task"
     }
-    normal_by_task: dict[int, list[float]] = defaultdict(list)
-    counterfactual_by_task: dict[int, list[float]] = defaultdict(list)
+    values_by_task: dict[int, list[tuple[float, float, float]]] = defaultdict(list)
     evaluation_index = evaluation_index.cpu()
     for position in range(evaluation_index.shape[1]):
         for node_idx in {int(evaluation_index[0, position]), int(evaluation_index[1, position])}:
             if node_idx in task_indices:
-                normal_by_task[node_idx].append(float(normal_error[position]))
-                counterfactual_by_task[node_idx].append(float(counterfactual_error[position]))
+                values_by_task[node_idx].append(
+                    (
+                        float(normal_error[position]),
+                        float(counterfactual_error[position]),
+                        float(evaluation_weights[position]),
+                    )
+                )
 
     result: dict[str, dict[str, float]] = {}
     for task_idx in task_indices:
-        if not normal_by_task[task_idx]:
+        values = values_by_task[task_idx]
+        if not values:
             continue
-        normal = float(np.mean(normal_by_task[task_idx]))
-        counterfactual = float(np.mean(counterfactual_by_task[task_idx]))
+        weights = np.asarray([value[2] for value in values], dtype=float)
+        normal = float(np.average([value[0] for value in values], weights=weights))
+        counterfactual = float(np.average([value[1] for value in values], weights=weights))
         result[prepared["nodes"][task_idx]["id"]] = {
             "normal_error": normal,
             "counterfactual_error": counterfactual,
