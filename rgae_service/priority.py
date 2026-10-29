@@ -5,10 +5,17 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-STRUCTURE_WEIGHT = 0.55
-DEADLINE_WEIGHT = 0.30
-WORKFLOW_WEIGHT = 0.15
-RELATED_ONLY_PENALTY = 10.0
+PRIORITY_POLICY = {
+    "candidate_scope": "direct_1hop_active_tasks",
+    "structure_weight": 55,
+    "deadline_weight": 30,
+    "workflow_weight": 15,
+    "related_only_penalty": 10,
+}
+STRUCTURE_WEIGHT = PRIORITY_POLICY["structure_weight"] / 100
+DEADLINE_WEIGHT = PRIORITY_POLICY["deadline_weight"] / 100
+WORKFLOW_WEIGHT = PRIORITY_POLICY["workflow_weight"] / 100
+RELATED_ONLY_PENALTY = float(PRIORITY_POLICY["related_only_penalty"])
 ROLE_RELATIONS = {
     "APPROVES",
     "APPROVER",

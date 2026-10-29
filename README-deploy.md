@@ -42,6 +42,10 @@ curl -X POST "$MODEL_API_URL/v1/priorities" \
 
 역할 edge 계수는 `APPROVER 31 / OWNER 27 / REVIEWER 21 / COLLABORATOR 17 / RELATED 4`, 기타 관계는 15입니다. 최종 점수는 `구조 55 + 유효 마감 30 + 연속성 15 - RELATED-only 10`입니다.
 
+우선순위 응답의 `candidate_scope`는 `direct_1hop_active_tasks`이며,
+`priority_policy`에 55/30/15/-10 운영 계수를 함께 반환해 배포된
+정책을 화면과 운영 로그에서 확인할 수 있습니다.
+
 완료 상태 Task는 최신 Supabase 값으로 제외됩니다. 학습 후 새로 생긴 Node와 Edge는 다음 학습부터 모델에 포함됩니다.
 
 `rankings`는 배열이 아니라 `task_id`를 key로 하는 객체입니다. 각 Task 값에는 `final_priority_rank`, `final_priority_score`와 세부 점수가 들어갑니다.

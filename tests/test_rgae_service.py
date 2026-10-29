@@ -142,6 +142,16 @@ class RgaeServiceTests(unittest.TestCase):
             response = priorities(request, body)
 
         self.assertEqual(response["candidate_scope"], "direct_1hop_active_tasks")
+        self.assertEqual(
+            response["priority_policy"],
+            {
+                "candidate_scope": "direct_1hop_active_tasks",
+                "structure_weight": 55,
+                "deadline_weight": 30,
+                "workflow_weight": 15,
+                "related_only_penalty": 10,
+            },
+        )
         self.assertEqual(len(response["source_people"]), 2)
         self.assertEqual(response["receiver"]["person_id"], "p3")
         self.assertEqual(set(response["rankings"]), {"t1", "t2"})

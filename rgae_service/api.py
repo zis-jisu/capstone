@@ -22,7 +22,7 @@ from .graph import (
     resolve_person,
 )
 from .model import task_impact_scores
-from .priority import rank_tasks
+from .priority import PRIORITY_POLICY, rank_tasks
 from .repository import fetch_graph
 from .runtime import ModelRuntime
 from .training import train_once
@@ -161,7 +161,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Handover R-GAE API",
-    version="4.0.0",
+    version="4.1.0",
     lifespan=lifespan,
 )
 
@@ -305,6 +305,7 @@ def priorities(request: Request, body: PriorityRequest):
                     else None
                 ),
                 "candidate_scope": "direct_1hop_active_tasks",
+                "priority_policy": PRIORITY_POLICY,
                 "model_trained_at": record["trained_at"],
                 "rankings": {},
             }
@@ -346,6 +347,7 @@ def priorities(request: Request, body: PriorityRequest):
             else None
         ),
         "candidate_scope": "direct_1hop_active_tasks",
+        "priority_policy": PRIORITY_POLICY,
         "model_trained_at": record["trained_at"],
         "rankings": {row["task_id"]: row for row in rankings},
     }
