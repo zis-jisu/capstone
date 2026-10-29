@@ -67,6 +67,9 @@
       const collaboratorIds = participantLinks.filter(e => e.target_id === id && e.relation === 'COLLABORATOR').map(e => e.source_id);
       const otherIds = participantLinks.filter(e => e.target_id === id && e.relation !== 'OWNER').map(e => e.source_id);
       const owners = names(ownerIds), collaborators = names(otherIds);
+      const roleAssignments=participantLinks.filter(e=>e.target_id===id).map(e=>({
+        personId:e.source_id,name:peopleMap.get(e.source_id)?.name||e.source_id,role:e.relation
+      }));
       const eventIds=new Set(evs.map(e=>e.event_id));
       const contactIds=new Set(edges.filter(e=>e.source_type==='Person'&&(e.target_id===id||eventIds.has(e.target_id))).map(e=>e.source_id));
       for(const e of evs)for(const key of ['speaker_id','slack_user_id','actor_id','recipient_id'])if(e[key])contactIds.add(e[key]);
@@ -81,9 +84,9 @@
       const deadline=preciseDue || t.deadline_text || '미정';
       const recent = evs.length ? evs[evs.length - 1].slack_ts : '0';
       TASKS[id] = {
-        name: html(t.title), sourceName:String(t.title || ''), status: html(statusText(t.status)), risk:null, deadline:html(deadline), updated:Number(recent),
+        name: html(t.title), sourceName:String(t.title || ''), status: html(statusText(t.status)), risk:null, deadline:html(deadline), deadlineAt:rawDue||null, updated:Number(recent),
         type: ownerIds.length > 1 || collaboratorIds.length > 0 ? 'collab':'solo', owner:html(owners[0] || '담당자 미확인'),
-        contacts, people: collaborators.map(html), next:html(next), after:[], blocker:html(explicitBlocker||prereqs[0] || '명시된 차단 사유 없음'),
+        contacts, people: collaborators.map(html), roleAssignments, next:html(next), after:[], blocker:html(explicitBlocker||prereqs[0] || '명시된 차단 사유 없음'),
         prerequisiteTexts:prereqs.map(html), explicitBlocker:html(explicitBlocker),
         caution:html(caution), history:evs.map(e => html(`${authorForEvent(e)} · ${e.action || e.subject || e.evidence}`)),
         flow:[html(statusText(t.status)), html(next), '완료 확인'], depends:depTitles.map(html), approval:'원문 근거 참조',
@@ -185,6 +188,7 @@
   window.linkingSetOwnerTab=owner=>{
     window.linkingOwnerTab=['all','김지수','박보검'].includes(owner)?owner:'all';
     window.linkingTaskPriorityPage=1;
+    window.linkingTaskPriorityFilters={...(window.linkingTaskPriorityFilters||{}),source:'all'};
     window.linkingSelectedFlowTaskId=null;
     window.linkingSelectedFlowTaskWork=null;
     window.linkingSelectedWorkId=null;
@@ -199,6 +203,12 @@
   };
   window.linkingSetTaskPriorityPage=page=>{
     window.linkingTaskPriorityPage=Math.max(1,Number(page)||1);
+    renderPriorityOverview();
+  };
+  window.linkingSetTaskPriorityFilter=(key,value)=>{
+    if(!['source','role','status','sort'].includes(key))return;
+    window.linkingTaskPriorityFilters={source:'all',role:'all',status:'all',sort:'priority',...(window.linkingTaskPriorityFilters||{}),[key]:value};
+    window.linkingTaskPriorityPage=1;
     renderPriorityOverview();
   };
   renderPriorityOverview = function () {
@@ -366,14 +376,31 @@
     }
     const heading='<div class="flex flex-wrap items-center justify-between gap-3"><div><h2 class="text-[17px] font-bold">'+(priorityView==='task'?'Task 우선순위':'업무 진행 흐름')+'</h2><p class="mt-1 text-[11px] text-[#8B95A1]">'+(priorityView==='task'?'인수받은 Task를 우선순위가 높은 순서로 보여드립니다.':'Work 선택 · Task 클릭 시 아래 상세 표시')+'</p></div>'+viewToggle+'</div>';
     if(priorityView==='task'){
-      const taskRows=items.flatMap(item=>item.tasks.filter(row=>status(row.task)!=='done'&&(!state.filter||row.task.type===state.filter)).map(row=>({
-        id:row.id,task:row.task,work:item.work,sources:grantedSources[item.work.id]||[],rank:getRank(row.task),score:getScore(row.task),originalIndex:item.work.tasks.indexOf(row.id)
-      }))).sort((a,b)=>{
+      const roleName={OWNER:'담당',APPROVER:'승인',REVIEWER:'검토',COLLABORATOR:'협업',RELATED:'관련'};
+      const allTaskRows=items.flatMap(item=>item.tasks.filter(row=>status(row.task)!=='done'&&(!state.filter||row.task.type===state.filter)).map(row=>{
+        const sources=grantedSources[item.work.id]||[];
+        const assignments=(row.task.roleAssignments||[]).filter(assignment=>sources.includes(assignment.name));
+        const downstreamCount=dependencies.filter(link=>link.prerequisiteId===row.id&&TASKS[link.taskId]&&status(TASKS[link.taskId])!=='done').length;
+        return {id:row.id,task:row.task,work:item.work,sources,assignments,downstreamCount,rank:getRank(row.task),score:getScore(row.task),originalIndex:item.work.tasks.indexOf(row.id)};
+      }));
+      const filters={source:'all',role:'all',status:'all',sort:'priority',...(window.linkingTaskPriorityFilters||{})};
+      window.linkingTaskPriorityFilters=filters;
+      const sourceOptions=[...new Set(allTaskRows.flatMap(row=>row.sources))].sort((a,b)=>a.localeCompare(b,'ko'));
+      const roleOptions=[...new Set(allTaskRows.flatMap(row=>row.assignments.map(assignment=>assignment.role)))].sort();
+      const statusOptions=[...new Set(allTaskRows.map(row=>status(row.task)))].sort();
+      const prioritySort=(a,b)=>{
         if(a.rank!=null&&b.rank!=null&&a.rank!==b.rank)return a.rank-b.rank;
         if((a.rank!=null)!==(b.rank!=null))return a.rank!=null?-1:1;
         if(a.score!=null&&b.score!=null&&a.score!==b.score)return b.score-a.score;
         if((a.score!=null)!==(b.score!=null))return a.score!=null?-1:1;
         return a.work.name.localeCompare(b.work.name,'ko')||a.originalIndex-b.originalIndex;
+      };
+      const deadlineValue=row=>{const value=Date.parse(String(row.task.deadlineAt||''));return Number.isFinite(value)?value:Number.MAX_SAFE_INTEGER;};
+      const taskRows=allTaskRows.filter(row=>(filters.source==='all'||row.sources.includes(filters.source))&&(filters.role==='all'||row.assignments.some(assignment=>assignment.role===filters.role))&&(filters.status==='all'||status(row.task)===filters.status)).sort((a,b)=>{
+        if(filters.sort==='deadline')return deadlineValue(a)-deadlineValue(b)||prioritySort(a,b);
+        if(filters.sort==='downstream')return b.downstreamCount-a.downstreamCount||prioritySort(a,b);
+        if(filters.sort==='name')return String(a.task.name||'').localeCompare(String(b.task.name||''),'ko')||prioritySort(a,b);
+        return prioritySort(a,b);
       });
       window.linkingPriorityTaskRows=taskRows;
       const pageSize=5,pageCount=Math.max(1,Math.ceil(taskRows.length/pageSize));
@@ -382,11 +409,14 @@
       const pageRows=taskRows.slice((page-1)*pageSize,page*pageSize);
       const rows=pageRows.map((row,index)=>{
         const st=style(row.task),displayRank=row.rank??((page-1)*pageSize+index+1),sourceLabel=row.sources.join(' · ')||'인계자 미확인';
+        const roleLabel=row.assignments.length?[...new Set(row.assignments.map(assignment=>(roleName[assignment.role]||assignment.role)+' ('+assignment.role+')'))].join(' · '):'역할 미확인';
         const priority=row.score!=null?Math.round(row.score)+'점':row.rank!=null?row.rank+'위':'미산정';
-        return '<button type="button" data-priority-task-id="'+esc(row.id)+'" class="grid w-full min-w-[760px] grid-cols-[64px_minmax(260px,1fr)_120px_100px_100px_150px] items-center gap-3 border-t border-[#EEF0F3] px-4 py-4 text-left transition hover:bg-[#F7F9FF] focus:bg-[#F2F6FF] focus:outline-none"><span class="flex h-9 w-9 items-center justify-center rounded-full bg-[#F1F3F5] text-[13px] font-bold text-[#333D4B]">'+displayRank+'</span><span class="min-w-0"><strong class="block truncate text-[13px] text-[#191F28]">'+esc(row.task.name)+'</strong><span class="mt-1 block truncate text-[11px] text-[#8B95A1]">'+esc(row.work.name)+'</span></span><span class="truncate text-[12px] text-[#4E5968]">'+esc(sourceLabel)+'</span><span class="justify-self-start rounded-full border px-3 py-1.5 text-[11px] font-bold" style="background:'+st.bg+';color:'+st.fg+';border-color:'+st.fg+'40">'+esc(st.label)+'</span><strong class="text-[13px] '+(row.score!=null?'text-[#E5484D]':'text-[#6B7684]')+'">'+priority+'</strong><span class="flex items-center justify-between gap-2 text-[11px] text-[#4E5968]"><span class="truncate">'+esc(row.task.deadline||'미정')+'</span><span class="material-symbols-outlined text-[17px] text-[#8B95A1]">chevron_right</span></span></button>';
+        return '<button type="button" data-priority-task-id="'+esc(row.id)+'" class="grid w-full min-w-[1040px] grid-cols-[64px_minmax(260px,1fr)_110px_150px_90px_100px_100px_150px] items-center gap-3 border-t border-[#EEF0F3] px-4 py-4 text-left transition hover:bg-[#F7F9FF] focus:bg-[#F2F6FF] focus:outline-none"><span class="flex h-9 w-9 items-center justify-center rounded-full bg-[#F1F3F5] text-[13px] font-bold text-[#333D4B]">'+displayRank+'</span><span class="min-w-0"><strong class="block truncate text-[13px] text-[#191F28]">'+esc(row.task.name)+'</strong><span class="mt-1 block truncate text-[11px] text-[#8B95A1]">'+esc(row.work.name)+'</span></span><span class="truncate text-[12px] text-[#4E5968]">'+esc(sourceLabel)+'</span><span class="text-[11px] font-semibold text-[#4E5968]">'+esc(roleLabel)+'</span><span class="justify-self-start rounded-full border px-3 py-1.5 text-[11px] font-bold" style="background:'+st.bg+';color:'+st.fg+';border-color:'+st.fg+'40">'+esc(st.label)+'</span><strong class="text-[13px] '+(row.score!=null?'text-[#E5484D]':'text-[#6B7684]')+'">'+priority+'</strong><span class="text-center text-[12px] font-semibold text-[#4E5968]">'+row.downstreamCount+'건</span><span class="flex items-center justify-between gap-2 text-[11px] text-[#4E5968]"><span class="truncate">'+esc(row.task.deadline||'미정')+'</span><span class="material-symbols-outlined text-[17px] text-[#8B95A1]">chevron_right</span></span></button>';
       }).join('')||'<div class="px-6 py-16 text-center text-[13px] text-[#8B95A1]">표시할 미완료 Task가 없습니다.</div>';
       const pages=Array.from({length:pageCount},(_,i)=>i+1).map(number=>'<button type="button" onclick="linkingSetTaskPriorityPage('+number+')" aria-current="'+(number===page?'page':'false')+'" class="h-8 min-w-8 rounded-lg px-2 text-[12px] font-bold '+(number===page?'bg-[#315FF4] text-white':'text-[#6B7684] hover:bg-[#F2F4F6]')+'">'+number+'</button>').join('');
-      area.innerHTML=heading+'<div class="mt-4 overflow-hidden rounded-xl border border-[#E5E8EB] bg-white"><div class="overflow-x-auto"><div class="grid min-w-[760px] grid-cols-[64px_minmax(260px,1fr)_120px_100px_100px_150px] gap-3 bg-[#F8F9FB] px-4 py-3 text-[11px] font-semibold text-[#6B7684]"><span>순위</span><span>Work | Task</span><span>인계자</span><span>상태</span><span>우선순위</span><span>마감</span></div>'+rows+'</div></div>'+
+      const option=(value,label,current)=>'<option value="'+esc(value)+'" '+(value===current?'selected':'')+'>'+esc(label)+'</option>';
+      const controls='<div class="mt-4 flex flex-wrap items-end gap-2 rounded-xl border border-[#E5E8EB] bg-[#F8F9FB] p-3"><label class="text-[10px] font-semibold text-[#6B7684]">인계자<select onchange="linkingSetTaskPriorityFilter(\'source\',this.value)" class="mt-1 block h-9 min-w-32 rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('all','전체',filters.source)+sourceOptions.map(value=>option(value,value,filters.source)).join('')+'</select></label><label class="text-[10px] font-semibold text-[#6B7684]">인계자 역할<select onchange="linkingSetTaskPriorityFilter(\'role\',this.value)" class="mt-1 block h-9 min-w-36 rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('all','전체 역할',filters.role)+roleOptions.map(value=>option(value,(roleName[value]||value)+' ('+value+')',filters.role)).join('')+'</select></label><label class="text-[10px] font-semibold text-[#6B7684]">상태<select onchange="linkingSetTaskPriorityFilter(\'status\',this.value)" class="mt-1 block h-9 min-w-28 rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('all','전체 상태',filters.status)+statusOptions.map(value=>option(value,value==='done'?'완료':value==='active'?'진행 중':value==='waiting'?'대기':'기타',filters.status)).join('')+'</select></label><label class="text-[10px] font-semibold text-[#6B7684]">정렬<select onchange="linkingSetTaskPriorityFilter(\'sort\',this.value)" class="mt-1 block h-9 min-w-40 rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('priority','우선순위 높은 순',filters.sort)+option('deadline','마감 임박 순',filters.sort)+option('downstream','후속 업무 많은 순',filters.sort)+option('name','Task명 순',filters.sort)+'</select></label><span class="ml-auto pb-2 text-[11px] text-[#8B95A1]">필터 결과 '+taskRows.length+'건</span></div>';
+      area.innerHTML=heading+controls+'<div class="mt-3 overflow-hidden rounded-xl border border-[#E5E8EB] bg-white"><div class="overflow-x-auto"><div class="grid min-w-[1040px] grid-cols-[64px_minmax(260px,1fr)_110px_150px_90px_100px_100px_150px] gap-3 bg-[#F8F9FB] px-4 py-3 text-[11px] font-semibold text-[#6B7684]"><span>순위</span><span>Work | Task</span><span>인계자</span><span>인계자 역할</span><span>상태</span><span>우선순위</span><span>후속 업무</span><span>마감</span></div>'+rows+'</div></div>'+
         '<div class="mt-4 flex flex-wrap items-center justify-between gap-3"><span class="text-[11px] text-[#8B95A1]">총 '+taskRows.length+'건 · 페이지당 5건</span><nav aria-label="Task 우선순위 페이지" class="flex items-center gap-1"><button type="button" onclick="linkingSetTaskPriorityPage('+(page-1)+')" '+(page===1?'disabled':'')+' class="h-8 rounded-lg px-3 text-[11px] font-bold text-[#6B7684] hover:bg-[#F2F4F6] disabled:cursor-not-allowed disabled:opacity-35">이전</button>'+pages+'<button type="button" onclick="linkingSetTaskPriorityPage('+(page+1)+')" '+(page===pageCount?'disabled':'')+' class="h-8 rounded-lg px-3 text-[11px] font-bold text-[#6B7684] hover:bg-[#F2F4F6] disabled:cursor-not-allowed disabled:opacity-35">다음</button></nav></div>';
     }else{
       area.innerHTML=heading+'<div class="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4"><div class="lg:col-span-2 space-y-2">'+items.map((item,i)=>
