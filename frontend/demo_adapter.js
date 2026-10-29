@@ -188,7 +188,6 @@
   window.linkingSetOwnerTab=owner=>{
     window.linkingOwnerTab=['all','김지수','박보검'].includes(owner)?owner:'all';
     window.linkingTaskPriorityPage=1;
-    window.linkingTaskPriorityFilters={...(window.linkingTaskPriorityFilters||{}),source:'all'};
     window.linkingSelectedFlowTaskId=null;
     window.linkingSelectedFlowTaskWork=null;
     window.linkingSelectedWorkId=null;
@@ -206,8 +205,24 @@
     renderPriorityOverview();
   };
   window.linkingSetTaskPriorityFilter=(key,value)=>{
-    if(!['source','role','status','sort'].includes(key))return;
-    window.linkingTaskPriorityFilters={source:'all',role:'all',status:'all',sort:'priority',...(window.linkingTaskPriorityFilters||{}),[key]:value};
+    if(!['role','status'].includes(key))return;
+    window.linkingTaskPriorityFilters={role:'all',status:'all',...(window.linkingTaskPriorityFilters||{}),[key]:value};
+    window.linkingTaskPriorityPage=1;
+    renderPriorityOverview();
+  };
+  window.linkingToggleTaskPriorityFilter=()=>{
+    window.linkingTaskPriorityFilterOpen=!window.linkingTaskPriorityFilterOpen;
+    renderPriorityOverview();
+  };
+  window.linkingClearTaskPriorityFilters=()=>{
+    window.linkingTaskPriorityFilters={role:'all',status:'all'};
+    window.linkingTaskPriorityPage=1;
+    renderPriorityOverview();
+  };
+  window.linkingSetTaskPrioritySort=key=>{
+    const current=window.linkingTaskPrioritySort||{key:'rank',direction:'asc'};
+    const defaults={rank:'asc',name:'asc',source:'asc',role:'asc',status:'asc',score:'desc',downstream:'desc',deadline:'asc'};
+    window.linkingTaskPrioritySort=current.key===key?{key,direction:current.direction==='asc'?'desc':'asc'}:{key,direction:defaults[key]||'asc'};
     window.linkingTaskPriorityPage=1;
     renderPriorityOverview();
   };
@@ -383,9 +398,8 @@
         const downstreamCount=dependencies.filter(link=>link.prerequisiteId===row.id&&TASKS[link.taskId]&&status(TASKS[link.taskId])!=='done').length;
         return {id:row.id,task:row.task,work:item.work,sources,assignments,downstreamCount,rank:getRank(row.task),score:getScore(row.task),originalIndex:item.work.tasks.indexOf(row.id)};
       }));
-      const filters={source:'all',role:'all',status:'all',sort:'priority',...(window.linkingTaskPriorityFilters||{})};
+      const filters={role:'all',status:'all',...(window.linkingTaskPriorityFilters||{})};
       window.linkingTaskPriorityFilters=filters;
-      const sourceOptions=[...new Set(allTaskRows.flatMap(row=>row.sources))].sort((a,b)=>a.localeCompare(b,'ko'));
       const roleOptions=[...new Set(allTaskRows.flatMap(row=>row.assignments.map(assignment=>assignment.role)))].sort();
       const statusOptions=[...new Set(allTaskRows.map(row=>status(row.task)))].sort();
       const prioritySort=(a,b)=>{
@@ -396,11 +410,16 @@
         return a.work.name.localeCompare(b.work.name,'ko')||a.originalIndex-b.originalIndex;
       };
       const deadlineValue=row=>{const value=Date.parse(String(row.task.deadlineAt||''));return Number.isFinite(value)?value:Number.MAX_SAFE_INTEGER;};
-      const taskRows=allTaskRows.filter(row=>(filters.source==='all'||row.sources.includes(filters.source))&&(filters.role==='all'||row.assignments.some(assignment=>assignment.role===filters.role))&&(filters.status==='all'||status(row.task)===filters.status)).sort((a,b)=>{
-        if(filters.sort==='deadline')return deadlineValue(a)-deadlineValue(b)||prioritySort(a,b);
-        if(filters.sort==='downstream')return b.downstreamCount-a.downstreamCount||prioritySort(a,b);
-        if(filters.sort==='name')return String(a.task.name||'').localeCompare(String(b.task.name||''),'ko')||prioritySort(a,b);
-        return prioritySort(a,b);
+      const sortState=window.linkingTaskPrioritySort||{key:'rank',direction:'asc'};
+      window.linkingTaskPrioritySort=sortState;
+      const sortValue=(row,key)=>key==='rank'?(row.rank??Number.MAX_SAFE_INTEGER):key==='name'?String(row.task.name||''):key==='source'?row.sources.join(' · '):key==='role'?row.assignments.map(assignment=>assignment.role).sort().join(' · '):key==='status'?status(row.task):key==='score'?(row.score??-Infinity):key==='downstream'?row.downstreamCount:key==='deadline'?deadlineValue(row):0;
+      const taskRows=allTaskRows.filter(row=>(filters.role==='all'||row.assignments.some(assignment=>assignment.role===filters.role))&&(filters.status==='all'||status(row.task)===filters.status)).sort((a,b)=>{
+        const leftMissing=sortState.key==='rank'?a.rank==null:sortState.key==='score'?a.score==null:sortState.key==='deadline'?deadlineValue(a)===Number.MAX_SAFE_INTEGER:false;
+        const rightMissing=sortState.key==='rank'?b.rank==null:sortState.key==='score'?b.score==null:sortState.key==='deadline'?deadlineValue(b)===Number.MAX_SAFE_INTEGER:false;
+        if(leftMissing!==rightMissing)return leftMissing?1:-1;
+        const left=sortValue(a,sortState.key),right=sortValue(b,sortState.key);
+        const compared=typeof left==='string'?left.localeCompare(right,'ko'):left-right;
+        return (sortState.direction==='asc'?compared:-compared)||prioritySort(a,b);
       });
       window.linkingPriorityTaskRows=taskRows;
       const pageSize=5,pageCount=Math.max(1,Math.ceil(taskRows.length/pageSize));
@@ -415,8 +434,11 @@
       }).join('')||'<div class="px-6 py-16 text-center text-[13px] text-[#8B95A1]">표시할 미완료 Task가 없습니다.</div>';
       const pages=Array.from({length:pageCount},(_,i)=>i+1).map(number=>'<button type="button" onclick="linkingSetTaskPriorityPage('+number+')" aria-current="'+(number===page?'page':'false')+'" class="h-8 min-w-8 rounded-lg px-2 text-[12px] font-bold '+(number===page?'bg-[#315FF4] text-white':'text-[#6B7684] hover:bg-[#F2F4F6]')+'">'+number+'</button>').join('');
       const option=(value,label,current)=>'<option value="'+esc(value)+'" '+(value===current?'selected':'')+'>'+esc(label)+'</option>';
-      const controls='<div class="mt-4 flex flex-wrap items-end gap-2 rounded-xl border border-[#E5E8EB] bg-[#F8F9FB] p-3"><label class="text-[10px] font-semibold text-[#6B7684]">인계자<select onchange="linkingSetTaskPriorityFilter(\'source\',this.value)" class="mt-1 block h-9 min-w-32 rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('all','전체',filters.source)+sourceOptions.map(value=>option(value,value,filters.source)).join('')+'</select></label><label class="text-[10px] font-semibold text-[#6B7684]">인계자 역할<select onchange="linkingSetTaskPriorityFilter(\'role\',this.value)" class="mt-1 block h-9 min-w-36 rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('all','전체 역할',filters.role)+roleOptions.map(value=>option(value,(roleName[value]||value)+' ('+value+')',filters.role)).join('')+'</select></label><label class="text-[10px] font-semibold text-[#6B7684]">상태<select onchange="linkingSetTaskPriorityFilter(\'status\',this.value)" class="mt-1 block h-9 min-w-28 rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('all','전체 상태',filters.status)+statusOptions.map(value=>option(value,value==='done'?'완료':value==='active'?'진행 중':value==='waiting'?'대기':'기타',filters.status)).join('')+'</select></label><label class="text-[10px] font-semibold text-[#6B7684]">정렬<select onchange="linkingSetTaskPriorityFilter(\'sort\',this.value)" class="mt-1 block h-9 min-w-40 rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('priority','우선순위 높은 순',filters.sort)+option('deadline','마감 임박 순',filters.sort)+option('downstream','후속 업무 많은 순',filters.sort)+option('name','Task명 순',filters.sort)+'</select></label><span class="ml-auto pb-2 text-[11px] text-[#8B95A1]">필터 결과 '+taskRows.length+'건</span></div>';
-      area.innerHTML=heading+controls+'<div class="mt-3 overflow-hidden rounded-xl border border-[#E5E8EB] bg-white"><div class="overflow-x-auto"><div class="grid min-w-[1040px] grid-cols-[64px_minmax(260px,1fr)_110px_150px_90px_100px_100px_150px] gap-3 bg-[#F8F9FB] px-4 py-3 text-[11px] font-semibold text-[#6B7684]"><span>순위</span><span>Work | Task</span><span>인계자</span><span>인계자 역할</span><span>상태</span><span>우선순위</span><span>후속 업무</span><span>마감</span></div>'+rows+'</div></div>'+
+      const filterCount=(filters.role!=='all'?1:0)+(filters.status!=='all'?1:0),filterOpen=Boolean(window.linkingTaskPriorityFilterOpen);
+      const filterPanel=filterOpen?'<div class="absolute right-0 top-11 z-30 w-72 rounded-xl border border-[#DDE3EA] bg-white p-4 shadow-xl"><div class="flex items-center justify-between"><strong class="text-[13px] text-[#191F28]">표 필터</strong>'+(filterCount?'<button type="button" onclick="linkingClearTaskPriorityFilters()" class="text-[11px] font-semibold text-[#315FF4]">초기화</button>':'')+'</div><label class="mt-3 block text-[10px] font-semibold text-[#6B7684]">인계자 역할<select onchange="linkingSetTaskPriorityFilter(\'role\',this.value)" class="mt-1 block h-9 w-full rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('all','전체 역할',filters.role)+roleOptions.map(value=>option(value,(roleName[value]||value)+' ('+value+')',filters.role)).join('')+'</select></label><label class="mt-3 block text-[10px] font-semibold text-[#6B7684]">상태<select onchange="linkingSetTaskPriorityFilter(\'status\',this.value)" class="mt-1 block h-9 w-full rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('all','전체 상태',filters.status)+statusOptions.map(value=>option(value,value==='done'?'완료':value==='active'?'진행 중':value==='waiting'?'대기':'기타',filters.status)).join('')+'</select></label><div class="mt-3 text-right text-[11px] text-[#8B95A1]">적용 결과 '+taskRows.length+'건</div></div>':'';
+      const filterToolbar='<div class="relative mt-4 flex justify-end"><button type="button" onclick="linkingToggleTaskPriorityFilter()" aria-expanded="'+String(filterOpen)+'" class="inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-semibold '+(filterCount?'border-[#315FF4] bg-[#F2F5FF] text-[#315FF4]':'border-[#DDE3EA] bg-white text-[#4E5968]')+'"><span class="material-symbols-outlined text-[17px]">filter_alt</span>필터'+(filterCount?'<span class="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#315FF4] px-1 text-[10px] text-white">'+filterCount+'</span>':'')+'</button>'+filterPanel+'</div>';
+      const sortHeader=(key,label)=>{const active=sortState.key===key,arrow=active?(sortState.direction==='asc'?'↑':'↓'):'↕';return '<button type="button" onclick="linkingSetTaskPrioritySort(\''+key+'\')" aria-label="'+esc(label)+' 정렬" class="inline-flex items-center gap-1 text-left '+(active?'font-bold text-[#315FF4]':'hover:text-[#333D4B]')+'"><span>'+esc(label)+'</span><span class="text-[11px] '+(active?'text-[#315FF4]':'text-[#B0B8C1]')+'">'+arrow+'</span></button>';};
+      area.innerHTML=heading+filterToolbar+'<div class="mt-3 overflow-hidden rounded-xl border border-[#E5E8EB] bg-white"><div class="overflow-x-auto"><div class="grid min-w-[1040px] grid-cols-[64px_minmax(260px,1fr)_110px_150px_90px_100px_100px_150px] gap-3 bg-[#F8F9FB] px-4 py-3 text-[11px] font-semibold text-[#6B7684]">'+sortHeader('rank','순위')+sortHeader('name','Work | Task')+sortHeader('source','인계자')+sortHeader('role','인계자 역할')+sortHeader('status','상태')+sortHeader('score','우선순위')+sortHeader('downstream','후속 업무')+sortHeader('deadline','마감')+'</div>'+rows+'</div></div>'+
         '<div class="mt-4 flex flex-wrap items-center justify-between gap-3"><span class="text-[11px] text-[#8B95A1]">총 '+taskRows.length+'건 · 페이지당 5건</span><nav aria-label="Task 우선순위 페이지" class="flex items-center gap-1"><button type="button" onclick="linkingSetTaskPriorityPage('+(page-1)+')" '+(page===1?'disabled':'')+' class="h-8 rounded-lg px-3 text-[11px] font-bold text-[#6B7684] hover:bg-[#F2F4F6] disabled:cursor-not-allowed disabled:opacity-35">이전</button>'+pages+'<button type="button" onclick="linkingSetTaskPriorityPage('+(page+1)+')" '+(page===pageCount?'disabled':'')+' class="h-8 rounded-lg px-3 text-[11px] font-bold text-[#6B7684] hover:bg-[#F2F4F6] disabled:cursor-not-allowed disabled:opacity-35">다음</button></nav></div>';
     }else{
       area.innerHTML=heading+'<div class="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4"><div class="lg:col-span-2 space-y-2">'+items.map((item,i)=>
