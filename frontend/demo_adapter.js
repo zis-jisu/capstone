@@ -204,10 +204,12 @@
     window.linkingTaskPriorityPage=Math.max(1,Number(page)||1);
     renderPriorityOverview();
   };
-  window.linkingSetTaskPriorityFilter=(key,value)=>{
+  window.linkingToggleTaskPriorityFilterValue=(key,value)=>{
     if(!['work','source','role','status'].includes(key))return;
-    window.linkingTaskPriorityFilters={work:'all',source:'all',role:'all',status:'all',...(window.linkingTaskPriorityFilters||{}),[key]:value};
-    window.linkingTaskPriorityFilterColumn=null;
+    const filters={work:[],source:[],role:[],status:[],...(window.linkingTaskPriorityFilters||{})};
+    const current=Array.isArray(filters[key])?filters[key]:filters[key]&&filters[key]!=='all'?[filters[key]]:[];
+    filters[key]=current.includes(value)?current.filter(item=>item!==value):[...current,value];
+    window.linkingTaskPriorityFilters=filters;
     window.linkingTaskPriorityPage=1;
     renderPriorityOverview();
   };
@@ -218,8 +220,7 @@
   };
   window.linkingClearTaskPriorityFilter=key=>{
     if(!['work','source','role','status'].includes(key))return;
-    window.linkingTaskPriorityFilters={work:'all',source:'all',role:'all',status:'all',...(window.linkingTaskPriorityFilters||{}),[key]:'all'};
-    window.linkingTaskPriorityFilterColumn=null;
+    window.linkingTaskPriorityFilters={work:[],source:[],role:[],status:[],...(window.linkingTaskPriorityFilters||{}),[key]:[]};
     window.linkingTaskPriorityPage=1;
     renderPriorityOverview();
   };
@@ -413,7 +414,9 @@
         const downstreamCount=dependencies.filter(link=>link.prerequisiteId===row.id&&TASKS[link.taskId]&&status(TASKS[link.taskId])!=='done').length;
         return {id:row.id,task:row.task,work:item.work,sources,assignments,downstreamCount,rank:getRank(row.task),score:getScore(row.task),originalIndex:item.work.tasks.indexOf(row.id)};
       }));
-      const filters={work:'all',source:'all',role:'all',status:'all',...(window.linkingTaskPriorityFilters||{})};
+      const storedFilters={work:[],source:[],role:[],status:[],...(window.linkingTaskPriorityFilters||{})};
+      const normalizeFilter=value=>Array.isArray(value)?value:value&&value!=='all'?[value]:[];
+      const filters={work:normalizeFilter(storedFilters.work),source:normalizeFilter(storedFilters.source),role:normalizeFilter(storedFilters.role),status:normalizeFilter(storedFilters.status)};
       window.linkingTaskPriorityFilters=filters;
       const workOptions=[...new Map(allTaskRows.map(row=>[row.work.id,row.work.name])).entries()].map(([value,label])=>({value,label})).sort((a,b)=>a.label.localeCompare(b.label,'ko'));
       const sourceOptions=[...new Set(allTaskRows.flatMap(row=>row.sources))].sort((a,b)=>a.localeCompare(b,'ko'));
@@ -429,7 +432,7 @@
       const deadlineValue=row=>{const value=Date.parse(String(row.task.deadlineAt||''));return Number.isFinite(value)?value:Number.MAX_SAFE_INTEGER;};
       const sortState=window.linkingTaskPrioritySort||{key:null,direction:null};
       window.linkingTaskPrioritySort=sortState;
-      const filteredRows=allTaskRows.filter(row=>(filters.work==='all'||row.work.id===filters.work)&&(filters.source==='all'||row.sources.includes(filters.source))&&(filters.role==='all'||row.assignments.some(assignment=>assignment.role===filters.role))&&(filters.status==='all'||status(row.task)===filters.status));
+      const filteredRows=allTaskRows.filter(row=>(!filters.work.length||filters.work.includes(row.work.id))&&(!filters.source.length||row.sources.some(source=>filters.source.includes(source)))&&(!filters.role.length||row.assignments.some(assignment=>filters.role.includes(assignment.role)))&&(!filters.status.length||filters.status.includes(status(row.task))));
       [...filteredRows].sort(prioritySort).forEach((row,index)=>{row.relativeRank=index+1;});
       const sortValue=(row,key)=>key==='rank'?row.relativeRank:key==='score'?(row.score??-Infinity):key==='downstream'?row.downstreamCount:key==='deadline'?deadlineValue(row):0;
       const taskRows=filteredRows.sort((a,b)=>{
@@ -455,15 +458,15 @@
       const sortHeader=(key,label)=>{const active=sortState.key===key,arrow=active?(sortState.direction==='asc'?'↑':'↓'):'↕';return '<button type="button" onclick="linkingSetTaskPrioritySort(\''+key+'\')" aria-label="'+esc(label)+' 정렬" class="inline-flex items-center gap-1 text-left '+(active?'font-bold text-[#315FF4]':'hover:text-[#333D4B]')+'"><span>'+esc(label)+'</span><span class="text-[11px] '+(active?'text-[#315FF4]':'text-[#B0B8C1]')+'">'+arrow+'</span></button>';};
       const openFilter=window.linkingTaskPriorityFilterColumn;
       const filterChoices={
-        work:[{value:'all',label:'전체 Work'},...workOptions],
-        source:[{value:'all',label:'전체 인계자'},...sourceOptions.map(value=>({value,label:value}))],
-        role:[{value:'all',label:'전체 역할'},...roleOptions.map(value=>({value,label:(roleName[value]||value)+' ('+value+')'}))],
-        status:[{value:'all',label:'전체 상태'},...statusOptions.map(value=>({value,label:value==='done'?'완료':value==='active'?'진행 중':value==='waiting'?'대기':'기타'}))],
+        work:workOptions,
+        source:sourceOptions.map(value=>({value,label:value})),
+        role:roleOptions.map(value=>({value,label:(roleName[value]||value)+' ('+value+')'})),
+        status:statusOptions.map(value=>({value,label:value==='done'?'완료':value==='active'?'진행 중':value==='waiting'?'대기':'기타'})),
       };
       const filterTitles={work:'Work | Task',source:'인계자',role:'인계자 역할',status:'상태'};
-      const filterHeader=(key,label)=>{const active=filters[key]!=='all',open=openFilter===key;return '<span data-task-column-filter class="inline-flex items-center gap-1"><span>'+esc(label)+'</span><button type="button" onclick="linkingToggleTaskColumnFilter(\''+key+'\')" aria-expanded="'+String(open)+'" aria-label="'+esc(label)+' 필터" class="inline-flex h-5 w-5 items-center justify-center text-[12px] font-black '+(active||open?'text-[#315FF4]':'text-[#9AA5B1] hover:text-[#4E5968]')+'">▼</button></span>';};
-      const columnFilterPanel=openFilter?'<div data-task-column-filter class="min-w-[1040px] border-t border-[#E5E8EB] bg-white px-4 py-3"><div class="flex flex-wrap items-center gap-2"><strong class="mr-1 text-[11px] text-[#4E5968]">'+esc(filterTitles[openFilter])+' 필터</strong>'+filterChoices[openFilter].map(choice=>'<button type="button" onclick="linkingSetTaskPriorityFilter(\''+openFilter+'\',\''+esc(choice.value)+'\')" class="rounded-full border px-3 py-1.5 text-[11px] font-semibold '+(filters[openFilter]===choice.value?'border-[#315FF4] bg-[#315FF4] text-white':'border-[#DDE3EA] bg-white text-[#4E5968] hover:border-[#8EA6FF]')+'">'+esc(choice.label)+'</button>').join('')+'</div></div>':'';
-      area.innerHTML=heading+'<div class="mt-3 overflow-hidden rounded-xl border border-[#E5E8EB] bg-white"><div class="overflow-x-auto"><div class="grid min-w-[1040px] grid-cols-[64px_minmax(260px,1fr)_110px_150px_90px_100px_100px_150px] gap-3 bg-[#F8F9FB] px-4 py-3 text-[11px] font-semibold text-[#6B7684]">'+sortHeader('rank','순위')+filterHeader('work','Work | Task')+filterHeader('source','인계자')+filterHeader('role','인계자 역할')+filterHeader('status','상태')+sortHeader('score','우선순위')+sortHeader('downstream','후속 업무')+sortHeader('deadline','마감')+'</div>'+columnFilterPanel+rows+'</div></div>'+
+      const filterHeader=(key,label)=>{const active=filters[key].length>0,open=openFilter===key;return '<span data-task-column-filter class="inline-flex items-center gap-1"><span>'+esc(label)+'</span><button type="button" onclick="linkingToggleTaskColumnFilter(\''+key+'\')" aria-expanded="'+String(open)+'" aria-label="'+esc(label)+' 필터" class="inline-flex h-5 w-5 items-center justify-center text-[12px] font-black '+(active||open?'text-[#315FF4]':'text-[#9AA5B1] hover:text-[#4E5968]')+'">▼</button></span>';};
+      const columnFilterPanel=openFilter?'<div data-task-column-filter class="absolute right-3 top-12 z-40 w-72 rounded-xl border border-[#C9D1DC] bg-white p-4 shadow-2xl"><div class="flex items-center justify-between gap-3"><strong class="text-[13px] text-[#191F28]">'+esc(filterTitles[openFilter])+' 필터</strong><button type="button" onclick="linkingToggleTaskColumnFilter(\''+openFilter+'\')" class="material-symbols-outlined text-[18px] text-[#8B95A1]" aria-label="필터 닫기">close</button></div><button type="button" onclick="linkingClearTaskPriorityFilter(\''+openFilter+'\')" class="mt-3 flex w-full items-center gap-2 border-b border-[#EEF0F3] pb-3 text-left text-[12px] font-semibold text-[#333D4B]"><span class="material-symbols-outlined text-[18px] '+(!filters[openFilter].length?'text-[#315FF4]':'text-[#AAB2BD]')+'">'+(!filters[openFilter].length?'check_box':'check_box_outline_blank')+'</span>전체 보기</button><div class="max-h-52 overflow-y-auto py-2">'+filterChoices[openFilter].map(choice=>'<label class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-[12px] text-[#4E5968] hover:bg-[#F5F7FA]"><input type="checkbox" '+(filters[openFilter].includes(choice.value)?'checked':'')+' onchange="linkingToggleTaskPriorityFilterValue(\''+openFilter+'\',\''+esc(choice.value)+'\')" class="h-4 w-4 accent-[#315FF4]"><span class="truncate">'+esc(choice.label)+'</span></label>').join('')+'</div><div class="flex items-center justify-between border-t border-[#EEF0F3] pt-3"><span class="text-[11px] text-[#8B95A1]">결과 '+taskRows.length+'건</span><button type="button" onclick="linkingClearTaskPriorityFilter(\''+openFilter+'\')" class="text-[11px] font-semibold text-[#315FF4]">초기화</button></div></div>':'';
+      area.innerHTML=heading+'<div class="relative mt-3 rounded-xl border border-[#E5E8EB] bg-white"><div class="overflow-x-auto"><div class="grid min-w-[1040px] grid-cols-[64px_minmax(260px,1fr)_110px_150px_90px_100px_100px_150px] gap-3 rounded-t-xl bg-[#F8F9FB] px-4 py-3 text-[11px] font-semibold text-[#6B7684]">'+sortHeader('rank','순위')+filterHeader('work','Work | Task')+filterHeader('source','인계자')+filterHeader('role','인계자 역할')+filterHeader('status','상태')+sortHeader('score','우선순위')+sortHeader('downstream','후속 업무')+sortHeader('deadline','마감')+'</div></div>'+columnFilterPanel+'<div class="overflow-x-auto">'+rows+'</div></div>'+
         '<div class="mt-4 flex flex-wrap items-center justify-between gap-3"><span class="text-[11px] text-[#8B95A1]">총 '+taskRows.length+'건 · 페이지당 5건</span><nav aria-label="Task 우선순위 페이지" class="flex items-center gap-1"><button type="button" onclick="linkingSetTaskPriorityPage('+(page-1)+')" '+(page===1?'disabled':'')+' class="h-8 rounded-lg px-3 text-[11px] font-bold text-[#6B7684] hover:bg-[#F2F4F6] disabled:cursor-not-allowed disabled:opacity-35">이전</button>'+pages+'<button type="button" onclick="linkingSetTaskPriorityPage('+(page+1)+')" '+(page===pageCount?'disabled':'')+' class="h-8 rounded-lg px-3 text-[11px] font-bold text-[#6B7684] hover:bg-[#F2F4F6] disabled:cursor-not-allowed disabled:opacity-35">다음</button></nav></div>';
     }else{
       area.innerHTML=heading+'<div class="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4"><div class="lg:col-span-2 space-y-2">'+items.map((item,i)=>
