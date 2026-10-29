@@ -221,7 +221,8 @@
   };
   window.linkingSetTaskPrioritySort=key=>{
     const current=window.linkingTaskPrioritySort||{key:'rank',direction:'asc'};
-    const defaults={rank:'asc',name:'asc',source:'asc',role:'asc',status:'asc',score:'desc',downstream:'desc',deadline:'asc'};
+    const defaults={rank:'asc',score:'desc',downstream:'desc',deadline:'asc'};
+    if(!(key in defaults))return;
     window.linkingTaskPrioritySort=current.key===key?{key,direction:current.direction==='asc'?'desc':'asc'}:{key,direction:defaults[key]||'asc'};
     window.linkingTaskPriorityPage=1;
     renderPriorityOverview();
@@ -344,6 +345,14 @@
         window.linkingSelectFlowTask(trigger.getAttribute('data-priority-task-id'));
       });
     }
+    if(!window.linkingPriorityFilterDismissBound){
+      window.linkingPriorityFilterDismissBound=true;
+      root.addEventListener('click',event=>{
+        if(!window.linkingTaskPriorityFilterOpen||event.target.closest?.('[data-task-priority-filter]'))return;
+        window.linkingTaskPriorityFilterOpen=false;
+        renderPriorityOverview();
+      });
+    }
     window.linkingShowPriorityTasks=i=>{
       const item=window.linkingPriorityItems?.[i],panel=root.getElementById('work-priority-tasks');
       if(!item||!panel)return;
@@ -412,7 +421,7 @@
       const deadlineValue=row=>{const value=Date.parse(String(row.task.deadlineAt||''));return Number.isFinite(value)?value:Number.MAX_SAFE_INTEGER;};
       const sortState=window.linkingTaskPrioritySort||{key:'rank',direction:'asc'};
       window.linkingTaskPrioritySort=sortState;
-      const sortValue=(row,key)=>key==='rank'?(row.rank??Number.MAX_SAFE_INTEGER):key==='name'?String(row.task.name||''):key==='source'?row.sources.join(' · '):key==='role'?row.assignments.map(assignment=>assignment.role).sort().join(' · '):key==='status'?status(row.task):key==='score'?(row.score??-Infinity):key==='downstream'?row.downstreamCount:key==='deadline'?deadlineValue(row):0;
+      const sortValue=(row,key)=>key==='rank'?(row.rank??Number.MAX_SAFE_INTEGER):key==='score'?(row.score??-Infinity):key==='downstream'?row.downstreamCount:key==='deadline'?deadlineValue(row):0;
       const taskRows=allTaskRows.filter(row=>(filters.role==='all'||row.assignments.some(assignment=>assignment.role===filters.role))&&(filters.status==='all'||status(row.task)===filters.status)).sort((a,b)=>{
         const leftMissing=sortState.key==='rank'?a.rank==null:sortState.key==='score'?a.score==null:sortState.key==='deadline'?deadlineValue(a)===Number.MAX_SAFE_INTEGER:false;
         const rightMissing=sortState.key==='rank'?b.rank==null:sortState.key==='score'?b.score==null:sortState.key==='deadline'?deadlineValue(b)===Number.MAX_SAFE_INTEGER:false;
@@ -436,9 +445,9 @@
       const option=(value,label,current)=>'<option value="'+esc(value)+'" '+(value===current?'selected':'')+'>'+esc(label)+'</option>';
       const filterCount=(filters.role!=='all'?1:0)+(filters.status!=='all'?1:0),filterOpen=Boolean(window.linkingTaskPriorityFilterOpen);
       const filterPanel=filterOpen?'<div class="absolute right-0 top-11 z-30 w-72 rounded-xl border border-[#DDE3EA] bg-white p-4 shadow-xl"><div class="flex items-center justify-between"><strong class="text-[13px] text-[#191F28]">표 필터</strong>'+(filterCount?'<button type="button" onclick="linkingClearTaskPriorityFilters()" class="text-[11px] font-semibold text-[#315FF4]">초기화</button>':'')+'</div><label class="mt-3 block text-[10px] font-semibold text-[#6B7684]">인계자 역할<select onchange="linkingSetTaskPriorityFilter(\'role\',this.value)" class="mt-1 block h-9 w-full rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('all','전체 역할',filters.role)+roleOptions.map(value=>option(value,(roleName[value]||value)+' ('+value+')',filters.role)).join('')+'</select></label><label class="mt-3 block text-[10px] font-semibold text-[#6B7684]">상태<select onchange="linkingSetTaskPriorityFilter(\'status\',this.value)" class="mt-1 block h-9 w-full rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('all','전체 상태',filters.status)+statusOptions.map(value=>option(value,value==='done'?'완료':value==='active'?'진행 중':value==='waiting'?'대기':'기타',filters.status)).join('')+'</select></label><div class="mt-3 text-right text-[11px] text-[#8B95A1]">적용 결과 '+taskRows.length+'건</div></div>':'';
-      const filterToolbar='<div class="relative mt-4 flex justify-end"><button type="button" onclick="linkingToggleTaskPriorityFilter()" aria-expanded="'+String(filterOpen)+'" class="inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-semibold '+(filterCount?'border-[#315FF4] bg-[#F2F5FF] text-[#315FF4]':'border-[#DDE3EA] bg-white text-[#4E5968]')+'"><span class="material-symbols-outlined text-[17px]">filter_alt</span>필터'+(filterCount?'<span class="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#315FF4] px-1 text-[10px] text-white">'+filterCount+'</span>':'')+'</button>'+filterPanel+'</div>';
+      const filterToolbar='<div data-task-priority-filter class="relative mt-4 flex justify-end"><button type="button" onclick="linkingToggleTaskPriorityFilter()" aria-expanded="'+String(filterOpen)+'" class="inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-semibold '+(filterOpen||filterCount?'border-[#315FF4] bg-[#F2F5FF] text-[#315FF4]':'border-[#DDE3EA] bg-white text-[#4E5968]')+'"><span class="material-symbols-outlined text-[17px]">filter_alt</span>필터'+(filterCount?'<span class="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#315FF4] px-1 text-[10px] text-white">'+filterCount+'</span>':'')+'</button>'+filterPanel+'</div>';
       const sortHeader=(key,label)=>{const active=sortState.key===key,arrow=active?(sortState.direction==='asc'?'↑':'↓'):'↕';return '<button type="button" onclick="linkingSetTaskPrioritySort(\''+key+'\')" aria-label="'+esc(label)+' 정렬" class="inline-flex items-center gap-1 text-left '+(active?'font-bold text-[#315FF4]':'hover:text-[#333D4B]')+'"><span>'+esc(label)+'</span><span class="text-[11px] '+(active?'text-[#315FF4]':'text-[#B0B8C1]')+'">'+arrow+'</span></button>';};
-      area.innerHTML=heading+filterToolbar+'<div class="mt-3 overflow-hidden rounded-xl border border-[#E5E8EB] bg-white"><div class="overflow-x-auto"><div class="grid min-w-[1040px] grid-cols-[64px_minmax(260px,1fr)_110px_150px_90px_100px_100px_150px] gap-3 bg-[#F8F9FB] px-4 py-3 text-[11px] font-semibold text-[#6B7684]">'+sortHeader('rank','순위')+sortHeader('name','Work | Task')+sortHeader('source','인계자')+sortHeader('role','인계자 역할')+sortHeader('status','상태')+sortHeader('score','우선순위')+sortHeader('downstream','후속 업무')+sortHeader('deadline','마감')+'</div>'+rows+'</div></div>'+
+      area.innerHTML=heading+filterToolbar+'<div class="mt-3 overflow-hidden rounded-xl border border-[#E5E8EB] bg-white"><div class="overflow-x-auto"><div class="grid min-w-[1040px] grid-cols-[64px_minmax(260px,1fr)_110px_150px_90px_100px_100px_150px] gap-3 bg-[#F8F9FB] px-4 py-3 text-[11px] font-semibold text-[#6B7684]">'+sortHeader('rank','순위')+'<span>Work | Task</span><span>인계자</span><span>인계자 역할</span><span>상태</span>'+sortHeader('score','우선순위')+sortHeader('downstream','후속 업무')+sortHeader('deadline','마감')+'</div>'+rows+'</div></div>'+
         '<div class="mt-4 flex flex-wrap items-center justify-between gap-3"><span class="text-[11px] text-[#8B95A1]">총 '+taskRows.length+'건 · 페이지당 5건</span><nav aria-label="Task 우선순위 페이지" class="flex items-center gap-1"><button type="button" onclick="linkingSetTaskPriorityPage('+(page-1)+')" '+(page===1?'disabled':'')+' class="h-8 rounded-lg px-3 text-[11px] font-bold text-[#6B7684] hover:bg-[#F2F4F6] disabled:cursor-not-allowed disabled:opacity-35">이전</button>'+pages+'<button type="button" onclick="linkingSetTaskPriorityPage('+(page+1)+')" '+(page===pageCount?'disabled':'')+' class="h-8 rounded-lg px-3 text-[11px] font-bold text-[#6B7684] hover:bg-[#F2F4F6] disabled:cursor-not-allowed disabled:opacity-35">다음</button></nav></div>';
     }else{
       area.innerHTML=heading+'<div class="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4"><div class="lg:col-span-2 space-y-2">'+items.map((item,i)=>
