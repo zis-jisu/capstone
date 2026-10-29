@@ -19,6 +19,8 @@ class Settings:
     supabase_url: str
     supabase_secret_key: str
     graph_rpc: str
+    training_snapshot_table: str
+    training_snapshot_key: str
     storage_bucket: str
     model_object_path: str
     model_cache_dir: Path
@@ -42,6 +44,12 @@ class Settings:
                 "SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"
             ),
             graph_rpc=os.getenv("GRAPH_RPC", "get_graph_snapshot"),
+            training_snapshot_table=os.getenv(
+                "TRAINING_SNAPSHOT_TABLE", "graph_training_snapshots"
+            ),
+            training_snapshot_key=os.getenv(
+                "TRAINING_SNAPSHOT_KEY", "2026-10-01"
+            ),
             storage_bucket=os.getenv("MODEL_BUCKET", "rgae-models"),
             model_object_path=os.getenv("MODEL_OBJECT_PATH", "models/latest.pt"),
             model_cache_dir=Path(

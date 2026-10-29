@@ -33,6 +33,9 @@ logger = logging.getLogger(__name__)
 
 class TrainingRequest(BaseModel):
     trigger: str = Field(default="manual", pattern=r"^[a-z0-9_-]{1,40}$")
+    snapshot_key: str | None = Field(
+        default=None, pattern=r"^[A-Za-z0-9._:-]{1,80}$"
+    )
 
 
 class PriorityRequest(BaseModel):
@@ -65,13 +68,14 @@ class TrainingCoordinator:
             "last_result": None,
         }
 
-    def begin(self, trigger: str) -> bool:
+    def begin(self, trigger: str, snapshot_key: str) -> bool:
         with self.lock:
             if self.state["status"] in {"queued", "running"}:
                 return False
             self.state = {
                 "status": "running",
                 "trigger": trigger,
+                "training_snapshot_key": snapshot_key,
                 "current_epoch": 0,
                 "total_epochs": self.settings.epochs,
                 "progress_percent": 0.0,
@@ -100,6 +104,7 @@ class TrainingCoordinator:
             self.state = {
                 "status": "completed",
                 "trigger": trigger,
+                "training_snapshot_key": result.get("training_snapshot_key"),
                 "current_epoch": self.settings.epochs,
                 "total_epochs": self.settings.epochs,
                 "progress_percent": 100.0,
@@ -114,6 +119,7 @@ class TrainingCoordinator:
             self.state = {
                 "status": "failed",
                 "trigger": trigger,
+                "training_snapshot_key": self.state.get("training_snapshot_key"),
                 "current_epoch": self.state.get("current_epoch", 0),
                 "total_epochs": self.state.get("total_epochs", self.settings.epochs),
                 "progress_percent": self.state.get("progress_percent", 0.0),
@@ -194,7 +200,8 @@ def training_status(request: Request):
 def start_training(request: Request, body: TrainingRequest):
     """Stream training progress so Railway keeps the serverless container awake."""
     coordinator: TrainingCoordinator = request.app.state.coordinator
-    if not coordinator.begin(body.trigger):
+    snapshot_key = body.snapshot_key or coordinator.settings.training_snapshot_key
+    if not coordinator.begin(body.trigger, snapshot_key):
         raise HTTPException(status.HTTP_409_CONFLICT, "training is already running")
 
     events: queue.Queue[dict[str, Any]] = queue.Queue()
@@ -206,6 +213,7 @@ def start_training(request: Request, body: TrainingRequest):
                 {
                     "status": "running",
                     "trigger": body.trigger,
+                    "training_snapshot_key": snapshot_key,
                     "current_epoch": epoch,
                     "total_epochs": epochs,
                     "progress_percent": round(epoch / epochs * 100, 1),
@@ -219,6 +227,7 @@ def start_training(request: Request, body: TrainingRequest):
                 coordinator.settings,
                 coordinator.runtime,
                 body.trigger,
+                snapshot_key=snapshot_key,
                 progress=progress,
             )
             coordinator.complete(body.trigger, result)
@@ -230,6 +239,7 @@ def start_training(request: Request, body: TrainingRequest):
                 {
                     "status": "failed",
                     "trigger": body.trigger,
+                    "training_snapshot_key": snapshot_key,
                     "error": f"{type(error).__name__}: {error}",
                 }
             )
@@ -238,7 +248,8 @@ def start_training(request: Request, body: TrainingRequest):
 
     def stream():
         yield json.dumps(
-            {"accepted": True, "status": "running", "trigger": body.trigger}
+            {"accepted": True, "status": "running", "trigger": body.trigger,
+             "training_snapshot_key": snapshot_key}
         ) + "\n"
         while True:
             try:

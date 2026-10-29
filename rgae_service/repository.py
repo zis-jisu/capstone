@@ -34,6 +34,39 @@ def fetch_graph(settings: Settings) -> dict[str, Any]:
     return graph
 
 
+def fetch_training_snapshot(
+    settings: Settings, snapshot_key: str | None = None
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load one immutable training graph stored as JSONB in Supabase."""
+    key = (snapshot_key or settings.training_snapshot_key).strip()
+    if not key:
+        raise ValueError("training snapshot key is required")
+    response = httpx.get(
+        f"{settings.supabase_url}/rest/v1/{quote(settings.training_snapshot_table, safe='')}",
+        headers=_headers(settings),
+        params={
+            "select": "snapshot_key,snapshot_at,source_file,graph_json",
+            "snapshot_key": f"eq.{key}",
+            "limit": "1",
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    rows = response.json()
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError(f"training graph snapshot does not exist: {key}")
+    row = rows[0]
+    graph = row.get("graph_json")
+    if not isinstance(graph, dict):
+        raise RuntimeError(f"training graph snapshot is not a JSON object: {key}")
+    metadata = {
+        "snapshot_key": row.get("snapshot_key") or key,
+        "snapshot_at": row.get("snapshot_at"),
+        "source_file": row.get("source_file"),
+    }
+    return graph, metadata
+
+
 def upload_model(settings: Settings, local_path: Path) -> str:
     content = local_path.read_bytes()
     url = (

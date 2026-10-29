@@ -19,7 +19,7 @@ from .model import (
     set_seed,
     train_model,
 )
-from .repository import fetch_graph, upload_model
+from .repository import fetch_training_snapshot, upload_model
 
 if TYPE_CHECKING:
     from .runtime import ModelRuntime
@@ -29,11 +29,13 @@ def train_once(
     settings: Settings,
     runtime: "ModelRuntime | None" = None,
     trigger: str = "manual",
+    snapshot_key: str | None = None,
     progress: Callable[[int, int, float], None] | None = None,
 ) -> dict[str, Any]:
-    graph = normalize_graph(fetch_graph(settings))
+    raw_graph, snapshot = fetch_training_snapshot(settings, snapshot_key)
+    graph = normalize_graph(raw_graph)
     if not graph["nodes"] or not graph["edges"]:
-        raise RuntimeError("Supabase graph is empty; mock data must be inserted first")
+        raise RuntimeError("Supabase training graph snapshot is empty")
 
     digest = graph_digest(graph)
     set_seed(settings.seed)
@@ -50,7 +52,7 @@ def train_once(
     )
     trained_at = datetime.now(timezone.utc).isoformat()
     artifact = {
-        "format_version": 4,
+        "format_version": 5,
         "model_state_dict": model.cpu().state_dict(),
         "graph": graph,
         "graph_sha256": digest,
@@ -62,6 +64,9 @@ def train_once(
         "latent_dim": 32,
         "trained_at": trained_at,
         "trigger": trigger,
+        "training_snapshot_key": snapshot["snapshot_key"],
+        "training_snapshot_at": snapshot.get("snapshot_at"),
+        "training_snapshot_source_file": snapshot.get("source_file"),
         "final_loss": final_loss,
         "role_edge_weights": ROLE_EDGE_WEIGHTS,
         "other_relation_weight": OTHER_RELATION_WEIGHT,
@@ -83,6 +88,9 @@ def train_once(
         "final_loss": final_loss,
         "graph_sha256": digest,
         "artifact_sha256": artifact_sha256,
+        "training_snapshot_key": snapshot["snapshot_key"],
+        "training_snapshot_at": snapshot.get("snapshot_at"),
+        "training_snapshot_source_file": snapshot.get("source_file"),
     }
 
 
@@ -90,6 +98,7 @@ def main() -> None:
     result = train_once(
         Settings.from_env(),
         trigger=os.getenv("TRAIN_TRIGGER", "railway_cron"),
+        snapshot_key=os.getenv("TRAINING_SNAPSHOT_KEY", "2026-10-01"),
     )
     print(result, flush=True)
 

@@ -1,12 +1,12 @@
 # R-GAE 모델 API 배포
 
-Supabase mock 테이블을 `get_graph_snapshot()` RPC로 읽어 역할 edge 가중 R-GAE를 학습하고, 프론트에서 받은 한 명 또는 여러 명의 `person_id`에 대한 직접 1-hop Task 통합 순위를 반환합니다.
+Supabase의 `graph_training_snapshots` JSONB 스냅샷으로 역할 edge 가중 R-GAE를 학습하고, `get_graph_snapshot()` RPC의 최신 운영 필드를 결합해 한 명 또는 여러 명의 `person_id`에 대한 직접 1-hop Task 통합 순위를 반환합니다.
 
 ## API
 
 | Method | Path | 역할 |
 |---|---|---|
-| `POST` | `/v1/training` | 최신 Supabase 그래프로 학습하며 NDJSON 진행 로그 전송 |
+| `POST` | `/v1/training` | 지정된 Supabase JSONB 스냅샷으로 학습하며 NDJSON 진행 로그 전송 |
 | `GET` | `/v1/training` | 학습 상태와 최신 성공 학습일 조회 |
 | `POST` | `/v1/priorities` | 단일 또는 다중 인계 대상자의 1-hop Task 통합 순위 반환 |
 | `GET` | `/health` | Railway health check |
@@ -17,7 +17,7 @@ Supabase mock 테이블을 `get_graph_snapshot()` RPC로 읽어 역할 edge 가�
 curl -X POST "$MODEL_API_URL/v1/training" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $MODEL_API_KEY" \
-  -d '{"trigger":"manual"}'
+  -d '{"trigger":"manual","snapshot_key":"2026-10-01"}'
 ```
 
 응답은 `202 Accepted`이며 연결을 유지한 채 NDJSON 진행 로그가 전송됩니다. 마지막 `completed` 또는 `failed` 줄까지 연결을 유지해야 합니다. 별도 화면의 상태 표시는 동시에 `GET /v1/training`을 polling할 수 있습니다.
@@ -63,12 +63,13 @@ curl -X POST "$MODEL_API_URL/v1/priorities" \
 
 ## Supabase 준비
 
-1. 최초 설치 또는 RPC 복구가 필요할 때만 `sql/get_graph_snapshot.sql`을 Supabase SQL Editor에서 실행합니다. Railway는 이 파일을 실행하지 않습니다.
-2. mock 테이블에 데이터를 넣습니다. 빈 그래프는 학습하지 않습니다.
-3. 비공개 Storage bucket `rgae-models`를 만듭니다.
-4. Secret Key는 Railway 변수에만 저장하고 브라우저에 노출하지 않습니다.
+1. `sql/create_graph_training_snapshots.sql`을 Supabase SQL Editor에서 실행합니다.
+2. 10/1 전체 그래프를 `snapshot_key='2026-10-01'`의 `graph_json` JSONB로 저장합니다.
+3. 최신 운영 필드 조회용 `sql/get_graph_snapshot.sql` RPC를 유지합니다.
+4. 비공개 Storage bucket `rgae-models`를 만듭니다.
+5. Secret Key는 Railway 변수에만 저장하고 브라우저에 노출하지 않습니다.
 
-스냅샷 테이블은 필요하지 않습니다. 모델 파일 `models/latest.pt` 안에 학습 당시 그래프와 `trained_at`이 함께 저장됩니다.
+모델 파일 `models/latest.pt`에는 학습 그래프, `trained_at`, `training_snapshot_key`, `training_snapshot_at`이 함께 저장됩니다.
 API 서버는 `MODEL_REFRESH_SECONDS` 간격으로 Storage를 확인하므로, 별도 Cron 서비스가 새 모델을 올려도 재시작 없이 최신 모델과 학습일을 반영합니다.
 
 ## 로컬 실행
@@ -83,8 +84,8 @@ uvicorn rgae_service.api:app --host 0.0.0.0 --port 8000
 
 ## Railway 배포
 
-1. GitHub `zis-jisu/capstone` 저장소의 `slack` 브랜치로 push합니다.
-2. Railway에서 **Deploy from GitHub repo**를 선택하고 branch를 `slack`으로 지정합니다.
+1. GitHub `zis-jisu/capstone` 저장소의 `ml` 브랜치로 push합니다.
+2. Railway에서 **Deploy from GitHub repo**를 선택하고 branch를 `ml`로 지정합니다.
 3. Variables에 `.env.example` 항목을 등록합니다.
 4. Networking에서 API용 public domain을 생성합니다.
 
