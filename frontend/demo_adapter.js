@@ -421,10 +421,28 @@
     const heading='<div class="flex flex-wrap items-center justify-between gap-3"><div><h2 class="text-[17px] font-bold">'+(priorityView==='task'?'Task 우선순위':'업무 진행 흐름')+'</h2><p class="mt-1 text-[11px] text-[#8B95A1]">'+(priorityView==='task'?'인수받은 Task를 우선순위가 높은 순서로 보여드립니다.':'Work 선택 · Task 클릭 시 아래 상세 표시')+'</p></div>'+viewToggle+'</div>';
     if(priorityView==='task'){
       const roleName={OWNER:'담당',APPROVER:'승인',REVIEWER:'검토',COLLABORATOR:'협업',RELATED:'관련'};
+      const downstreamByPrerequisite=new Map();
+      dependencies.forEach(link=>{
+        if(!downstreamByPrerequisite.has(link.prerequisiteId))downstreamByPrerequisite.set(link.prerequisiteId,[]);
+        downstreamByPrerequisite.get(link.prerequisiteId).push(link.taskId);
+      });
+      const countActiveDownstreamChain=startId=>{
+        const visited=new Set([startId]),active=new Set(),stack=[startId];
+        while(stack.length){
+          const current=stack.pop();
+          (downstreamByPrerequisite.get(current)||[]).forEach(taskId=>{
+            if(visited.has(taskId))return;
+            visited.add(taskId);
+            stack.push(taskId);
+            if(TASKS[taskId]&&status(TASKS[taskId])!=='done')active.add(taskId);
+          });
+        }
+        return active.size;
+      };
       const allTaskRows=items.flatMap(item=>item.tasks.filter(row=>status(row.task)!=='done'&&(!state.filter||row.task.type===state.filter)).map(row=>{
         const sources=grantedSources[item.work.id]||[];
         const assignments=(row.task.roleAssignments||[]).filter(assignment=>sources.includes(assignment.name));
-        const downstreamCount=dependencies.filter(link=>link.prerequisiteId===row.id&&TASKS[link.taskId]&&status(TASKS[link.taskId])!=='done').length;
+        const downstreamCount=countActiveDownstreamChain(row.id);
         return {id:row.id,task:row.task,work:item.work,sources,assignments,downstreamCount,rank:getRank(row.task),score:getScore(row.task),originalIndex:item.work.tasks.indexOf(row.id)};
       }));
       const storedFilters={work:[],source:[],role:[],status:[],...(window.linkingTaskPriorityFilters||{})};
