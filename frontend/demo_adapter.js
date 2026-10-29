@@ -205,25 +205,31 @@
     renderPriorityOverview();
   };
   window.linkingSetTaskPriorityFilter=(key,value)=>{
-    if(!['role','status'].includes(key))return;
-    window.linkingTaskPriorityFilters={role:'all',status:'all',...(window.linkingTaskPriorityFilters||{}),[key]:value};
+    if(!['work','source','role','status'].includes(key))return;
+    window.linkingTaskPriorityFilters={work:'all',source:'all',role:'all',status:'all',...(window.linkingTaskPriorityFilters||{}),[key]:value};
+    window.linkingTaskPriorityFilterColumn=null;
     window.linkingTaskPriorityPage=1;
     renderPriorityOverview();
   };
-  window.linkingToggleTaskPriorityFilter=()=>{
-    window.linkingTaskPriorityFilterOpen=!window.linkingTaskPriorityFilterOpen;
+  window.linkingToggleTaskColumnFilter=key=>{
+    if(!['work','source','role','status'].includes(key))return;
+    window.linkingTaskPriorityFilterColumn=window.linkingTaskPriorityFilterColumn===key?null:key;
     renderPriorityOverview();
   };
-  window.linkingClearTaskPriorityFilters=()=>{
-    window.linkingTaskPriorityFilters={role:'all',status:'all'};
+  window.linkingClearTaskPriorityFilter=key=>{
+    if(!['work','source','role','status'].includes(key))return;
+    window.linkingTaskPriorityFilters={work:'all',source:'all',role:'all',status:'all',...(window.linkingTaskPriorityFilters||{}),[key]:'all'};
+    window.linkingTaskPriorityFilterColumn=null;
     window.linkingTaskPriorityPage=1;
     renderPriorityOverview();
   };
   window.linkingSetTaskPrioritySort=key=>{
-    const current=window.linkingTaskPrioritySort||{key:'rank',direction:'asc'};
+    const current=window.linkingTaskPrioritySort||{key:null,direction:null};
     const defaults={rank:'asc',score:'desc',downstream:'desc',deadline:'asc'};
     if(!(key in defaults))return;
-    window.linkingTaskPrioritySort=current.key===key?{key,direction:current.direction==='asc'?'desc':'asc'}:{key,direction:defaults[key]||'asc'};
+    if(current.key!==key)window.linkingTaskPrioritySort={key,direction:defaults[key]};
+    else if(current.direction===defaults[key])window.linkingTaskPrioritySort={key,direction:defaults[key]==='asc'?'desc':'asc'};
+    else window.linkingTaskPrioritySort={key:null,direction:null};
     window.linkingTaskPriorityPage=1;
     renderPriorityOverview();
   };
@@ -348,8 +354,8 @@
     if(!window.linkingPriorityFilterDismissBound){
       window.linkingPriorityFilterDismissBound=true;
       root.addEventListener('click',event=>{
-        if(!window.linkingTaskPriorityFilterOpen||event.target.closest?.('[data-task-priority-filter]'))return;
-        window.linkingTaskPriorityFilterOpen=false;
+        if(!window.linkingTaskPriorityFilterColumn||event.target.closest?.('[data-task-column-filter]'))return;
+        window.linkingTaskPriorityFilterColumn=null;
         renderPriorityOverview();
       });
     }
@@ -407,8 +413,10 @@
         const downstreamCount=dependencies.filter(link=>link.prerequisiteId===row.id&&TASKS[link.taskId]&&status(TASKS[link.taskId])!=='done').length;
         return {id:row.id,task:row.task,work:item.work,sources,assignments,downstreamCount,rank:getRank(row.task),score:getScore(row.task),originalIndex:item.work.tasks.indexOf(row.id)};
       }));
-      const filters={role:'all',status:'all',...(window.linkingTaskPriorityFilters||{})};
+      const filters={work:'all',source:'all',role:'all',status:'all',...(window.linkingTaskPriorityFilters||{})};
       window.linkingTaskPriorityFilters=filters;
+      const workOptions=[...new Map(allTaskRows.map(row=>[row.work.id,row.work.name])).entries()].map(([value,label])=>({value,label})).sort((a,b)=>a.label.localeCompare(b.label,'ko'));
+      const sourceOptions=[...new Set(allTaskRows.flatMap(row=>row.sources))].sort((a,b)=>a.localeCompare(b,'ko'));
       const roleOptions=[...new Set(allTaskRows.flatMap(row=>row.assignments.map(assignment=>assignment.role)))].sort();
       const statusOptions=[...new Set(allTaskRows.map(row=>status(row.task)))].sort();
       const prioritySort=(a,b)=>{
@@ -419,12 +427,14 @@
         return a.work.name.localeCompare(b.work.name,'ko')||a.originalIndex-b.originalIndex;
       };
       const deadlineValue=row=>{const value=Date.parse(String(row.task.deadlineAt||''));return Number.isFinite(value)?value:Number.MAX_SAFE_INTEGER;};
-      const sortState=window.linkingTaskPrioritySort||{key:'rank',direction:'asc'};
+      const sortState=window.linkingTaskPrioritySort||{key:null,direction:null};
       window.linkingTaskPrioritySort=sortState;
-      const sortValue=(row,key)=>key==='rank'?(row.rank??Number.MAX_SAFE_INTEGER):key==='score'?(row.score??-Infinity):key==='downstream'?row.downstreamCount:key==='deadline'?deadlineValue(row):0;
-      const taskRows=allTaskRows.filter(row=>(filters.role==='all'||row.assignments.some(assignment=>assignment.role===filters.role))&&(filters.status==='all'||status(row.task)===filters.status)).sort((a,b)=>{
-        const leftMissing=sortState.key==='rank'?a.rank==null:sortState.key==='score'?a.score==null:sortState.key==='deadline'?deadlineValue(a)===Number.MAX_SAFE_INTEGER:false;
-        const rightMissing=sortState.key==='rank'?b.rank==null:sortState.key==='score'?b.score==null:sortState.key==='deadline'?deadlineValue(b)===Number.MAX_SAFE_INTEGER:false;
+      const filteredRows=allTaskRows.filter(row=>(filters.work==='all'||row.work.id===filters.work)&&(filters.source==='all'||row.sources.includes(filters.source))&&(filters.role==='all'||row.assignments.some(assignment=>assignment.role===filters.role))&&(filters.status==='all'||status(row.task)===filters.status));
+      [...filteredRows].sort(prioritySort).forEach((row,index)=>{row.relativeRank=index+1;});
+      const sortValue=(row,key)=>key==='rank'?row.relativeRank:key==='score'?(row.score??-Infinity):key==='downstream'?row.downstreamCount:key==='deadline'?deadlineValue(row):0;
+      const taskRows=filteredRows.sort((a,b)=>{
+        const leftMissing=sortState.key==='score'?a.score==null:sortState.key==='deadline'?deadlineValue(a)===Number.MAX_SAFE_INTEGER:false;
+        const rightMissing=sortState.key==='score'?b.score==null:sortState.key==='deadline'?deadlineValue(b)===Number.MAX_SAFE_INTEGER:false;
         if(leftMissing!==rightMissing)return leftMissing?1:-1;
         const left=sortValue(a,sortState.key),right=sortValue(b,sortState.key);
         const compared=typeof left==='string'?left.localeCompare(right,'ko'):left-right;
@@ -436,18 +446,24 @@
       window.linkingTaskPriorityPage=page;
       const pageRows=taskRows.slice((page-1)*pageSize,page*pageSize);
       const rows=pageRows.map((row,index)=>{
-        const st=style(row.task),displayRank=row.rank??((page-1)*pageSize+index+1),sourceLabel=row.sources.join(' · ')||'인계자 미확인';
+        const st=style(row.task),displayRank=row.relativeRank??((page-1)*pageSize+index+1),sourceLabel=row.sources.join(' · ')||'인계자 미확인';
         const roleLabel=row.assignments.length?[...new Set(row.assignments.map(assignment=>(roleName[assignment.role]||assignment.role)+' ('+assignment.role+')'))].join(' · '):'역할 미확인';
         const priority=row.score!=null?Math.round(row.score)+'점':row.rank!=null?row.rank+'위':'미산정';
         return '<button type="button" data-priority-task-id="'+esc(row.id)+'" class="grid w-full min-w-[1040px] grid-cols-[64px_minmax(260px,1fr)_110px_150px_90px_100px_100px_150px] items-center gap-3 border-t border-[#EEF0F3] px-4 py-4 text-left transition hover:bg-[#F7F9FF] focus:bg-[#F2F6FF] focus:outline-none"><span class="flex h-9 w-9 items-center justify-center rounded-full bg-[#F1F3F5] text-[13px] font-bold text-[#333D4B]">'+displayRank+'</span><span class="min-w-0"><strong class="block truncate text-[13px] text-[#191F28]">'+esc(row.task.name)+'</strong><span class="mt-1 block truncate text-[11px] text-[#8B95A1]">'+esc(row.work.name)+'</span></span><span class="truncate text-[12px] text-[#4E5968]">'+esc(sourceLabel)+'</span><span class="text-[11px] font-semibold text-[#4E5968]">'+esc(roleLabel)+'</span><span class="justify-self-start rounded-full border px-3 py-1.5 text-[11px] font-bold" style="background:'+st.bg+';color:'+st.fg+';border-color:'+st.fg+'40">'+esc(st.label)+'</span><strong class="text-[13px] '+(row.score!=null?'text-[#E5484D]':'text-[#6B7684]')+'">'+priority+'</strong><span class="text-center text-[12px] font-semibold text-[#4E5968]">'+row.downstreamCount+'건</span><span class="flex items-center justify-between gap-2 text-[11px] text-[#4E5968]"><span class="truncate">'+esc(row.task.deadline||'미정')+'</span><span class="material-symbols-outlined text-[17px] text-[#8B95A1]">chevron_right</span></span></button>';
       }).join('')||'<div class="px-6 py-16 text-center text-[13px] text-[#8B95A1]">표시할 미완료 Task가 없습니다.</div>';
       const pages=Array.from({length:pageCount},(_,i)=>i+1).map(number=>'<button type="button" onclick="linkingSetTaskPriorityPage('+number+')" aria-current="'+(number===page?'page':'false')+'" class="h-8 min-w-8 rounded-lg px-2 text-[12px] font-bold '+(number===page?'bg-[#315FF4] text-white':'text-[#6B7684] hover:bg-[#F2F4F6]')+'">'+number+'</button>').join('');
-      const option=(value,label,current)=>'<option value="'+esc(value)+'" '+(value===current?'selected':'')+'>'+esc(label)+'</option>';
-      const filterCount=(filters.role!=='all'?1:0)+(filters.status!=='all'?1:0),filterOpen=Boolean(window.linkingTaskPriorityFilterOpen);
-      const filterPanel=filterOpen?'<div class="absolute right-0 top-11 z-30 w-72 rounded-xl border border-[#DDE3EA] bg-white p-4 shadow-xl"><div class="flex items-center justify-between"><strong class="text-[13px] text-[#191F28]">표 필터</strong>'+(filterCount?'<button type="button" onclick="linkingClearTaskPriorityFilters()" class="text-[11px] font-semibold text-[#315FF4]">초기화</button>':'')+'</div><label class="mt-3 block text-[10px] font-semibold text-[#6B7684]">인계자 역할<select onchange="linkingSetTaskPriorityFilter(\'role\',this.value)" class="mt-1 block h-9 w-full rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('all','전체 역할',filters.role)+roleOptions.map(value=>option(value,(roleName[value]||value)+' ('+value+')',filters.role)).join('')+'</select></label><label class="mt-3 block text-[10px] font-semibold text-[#6B7684]">상태<select onchange="linkingSetTaskPriorityFilter(\'status\',this.value)" class="mt-1 block h-9 w-full rounded-lg border border-[#DDE3EA] bg-white px-3 text-[12px] text-[#333D4B]">'+option('all','전체 상태',filters.status)+statusOptions.map(value=>option(value,value==='done'?'완료':value==='active'?'진행 중':value==='waiting'?'대기':'기타',filters.status)).join('')+'</select></label><div class="mt-3 text-right text-[11px] text-[#8B95A1]">적용 결과 '+taskRows.length+'건</div></div>':'';
-      const filterToolbar='<div data-task-priority-filter class="relative mt-4 flex justify-end"><button type="button" onclick="linkingToggleTaskPriorityFilter()" aria-expanded="'+String(filterOpen)+'" class="inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-semibold '+(filterOpen||filterCount?'border-[#315FF4] bg-[#F2F5FF] text-[#315FF4]':'border-[#DDE3EA] bg-white text-[#4E5968]')+'"><span class="material-symbols-outlined text-[17px]">filter_alt</span>필터'+(filterCount?'<span class="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#315FF4] px-1 text-[10px] text-white">'+filterCount+'</span>':'')+'</button>'+filterPanel+'</div>';
       const sortHeader=(key,label)=>{const active=sortState.key===key,arrow=active?(sortState.direction==='asc'?'↑':'↓'):'↕';return '<button type="button" onclick="linkingSetTaskPrioritySort(\''+key+'\')" aria-label="'+esc(label)+' 정렬" class="inline-flex items-center gap-1 text-left '+(active?'font-bold text-[#315FF4]':'hover:text-[#333D4B]')+'"><span>'+esc(label)+'</span><span class="text-[11px] '+(active?'text-[#315FF4]':'text-[#B0B8C1]')+'">'+arrow+'</span></button>';};
-      area.innerHTML=heading+filterToolbar+'<div class="mt-3 overflow-hidden rounded-xl border border-[#E5E8EB] bg-white"><div class="overflow-x-auto"><div class="grid min-w-[1040px] grid-cols-[64px_minmax(260px,1fr)_110px_150px_90px_100px_100px_150px] gap-3 bg-[#F8F9FB] px-4 py-3 text-[11px] font-semibold text-[#6B7684]">'+sortHeader('rank','순위')+'<span>Work | Task</span><span>인계자</span><span>인계자 역할</span><span>상태</span>'+sortHeader('score','우선순위')+sortHeader('downstream','후속 업무')+sortHeader('deadline','마감')+'</div>'+rows+'</div></div>'+
+      const openFilter=window.linkingTaskPriorityFilterColumn;
+      const filterChoices={
+        work:[{value:'all',label:'전체 Work'},...workOptions],
+        source:[{value:'all',label:'전체 인계자'},...sourceOptions.map(value=>({value,label:value}))],
+        role:[{value:'all',label:'전체 역할'},...roleOptions.map(value=>({value,label:(roleName[value]||value)+' ('+value+')'}))],
+        status:[{value:'all',label:'전체 상태'},...statusOptions.map(value=>({value,label:value==='done'?'완료':value==='active'?'진행 중':value==='waiting'?'대기':'기타'}))],
+      };
+      const filterTitles={work:'Work | Task',source:'인계자',role:'인계자 역할',status:'상태'};
+      const filterHeader=(key,label)=>{const active=filters[key]!=='all',open=openFilter===key;return '<span data-task-column-filter class="inline-flex items-center gap-1"><span>'+esc(label)+'</span><button type="button" onclick="linkingToggleTaskColumnFilter(\''+key+'\')" aria-expanded="'+String(open)+'" aria-label="'+esc(label)+' 필터" class="inline-flex h-5 w-5 items-center justify-center text-[12px] font-black '+(active||open?'text-[#315FF4]':'text-[#9AA5B1] hover:text-[#4E5968]')+'">▼</button></span>';};
+      const columnFilterPanel=openFilter?'<div data-task-column-filter class="min-w-[1040px] border-t border-[#E5E8EB] bg-white px-4 py-3"><div class="flex flex-wrap items-center gap-2"><strong class="mr-1 text-[11px] text-[#4E5968]">'+esc(filterTitles[openFilter])+' 필터</strong>'+filterChoices[openFilter].map(choice=>'<button type="button" onclick="linkingSetTaskPriorityFilter(\''+openFilter+'\',\''+esc(choice.value)+'\')" class="rounded-full border px-3 py-1.5 text-[11px] font-semibold '+(filters[openFilter]===choice.value?'border-[#315FF4] bg-[#315FF4] text-white':'border-[#DDE3EA] bg-white text-[#4E5968] hover:border-[#8EA6FF]')+'">'+esc(choice.label)+'</button>').join('')+'</div></div>':'';
+      area.innerHTML=heading+'<div class="mt-3 overflow-hidden rounded-xl border border-[#E5E8EB] bg-white"><div class="overflow-x-auto"><div class="grid min-w-[1040px] grid-cols-[64px_minmax(260px,1fr)_110px_150px_90px_100px_100px_150px] gap-3 bg-[#F8F9FB] px-4 py-3 text-[11px] font-semibold text-[#6B7684]">'+sortHeader('rank','순위')+filterHeader('work','Work | Task')+filterHeader('source','인계자')+filterHeader('role','인계자 역할')+filterHeader('status','상태')+sortHeader('score','우선순위')+sortHeader('downstream','후속 업무')+sortHeader('deadline','마감')+'</div>'+columnFilterPanel+rows+'</div></div>'+
         '<div class="mt-4 flex flex-wrap items-center justify-between gap-3"><span class="text-[11px] text-[#8B95A1]">총 '+taskRows.length+'건 · 페이지당 5건</span><nav aria-label="Task 우선순위 페이지" class="flex items-center gap-1"><button type="button" onclick="linkingSetTaskPriorityPage('+(page-1)+')" '+(page===1?'disabled':'')+' class="h-8 rounded-lg px-3 text-[11px] font-bold text-[#6B7684] hover:bg-[#F2F4F6] disabled:cursor-not-allowed disabled:opacity-35">이전</button>'+pages+'<button type="button" onclick="linkingSetTaskPriorityPage('+(page+1)+')" '+(page===pageCount?'disabled':'')+' class="h-8 rounded-lg px-3 text-[11px] font-bold text-[#6B7684] hover:bg-[#F2F4F6] disabled:cursor-not-allowed disabled:opacity-35">다음</button></nav></div>';
     }else{
       area.innerHTML=heading+'<div class="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4"><div class="lg:col-span-2 space-y-2">'+items.map((item,i)=>

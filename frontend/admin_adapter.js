@@ -687,9 +687,15 @@
         .sort((a,b)=>Math.abs(a[1].length-wanted.length)-Math.abs(b[1].length-wanted.length));
       return candidates[0]?.[0]||null;
     };
-    const matched=normalized.map(value=>[
+    const matchedCandidates=normalized.map(value=>[
       TASKS?.[value.sourceTaskId] ? value.sourceTaskId : fuzzyTaskId(value.taskName), value,
-    ]).filter(([taskId,value])=>taskId&&TASKS?.[taskId]&&value.rank!=null);
+    ]).filter(([taskId,value])=>taskId&&TASKS?.[taskId]&&value.rank!=null)
+      .sort((a,b)=>a[1].rank-b[1].rank||(b[1].score??-Infinity)-(a[1].score??-Infinity));
+    const seenTaskIds=new Set();
+    const matched=matchedCandidates.filter(([taskId])=>{
+      if(seenTaskIds.has(taskId))return false;
+      seenTaskIds.add(taskId);return true;
+    }).map(([taskId,value],index)=>[taskId,{...value,sourceRank:value.rank,rank:index+1}]);
     window.mlPriorityTaskIdsByPerson=window.mlPriorityTaskIdsByPerson||{};
     for(const taskId of window.mlPriorityTaskIdsByPerson[id]||[]){
       if(TASKS?.[taskId]){
@@ -699,13 +705,14 @@
       }
     }
     const store=readPriorityStore();store.byTaskId=store.byTaskId||{};store.byTaskName=store.byTaskName||{};
-    for(const value of normalized){
-      const saved={personId:id,sourceTaskId:value.sourceTaskId,taskName:value.taskName,score:value.score,rank:value.rank,savedAt:new Date().toISOString()};
-      if(value.sourceTaskId)store.byTaskId[value.sourceTaskId]=saved;
-      if(value.taskName)store.byTaskName[normalizeTaskName(saved.taskName)]=saved;
+    for(const [taskId,task] of taskEntries){
+      const previous=store.byTaskId[taskId]||store.byTaskName[normalizeTaskName(task.sourceName||task.name)];
+      if(previous?.personId===id){task.risk=null;task.priorityRank=null;task.priorityScore=null;}
     }
+    for(const [key,value] of Object.entries(store.byTaskId))if(value?.personId===id)delete store.byTaskId[key];
+    for(const [key,value] of Object.entries(store.byTaskName))if(value?.personId===id)delete store.byTaskName[key];
     for(const [taskId,value] of matched){
-      const saved={personId:id,sourceTaskId:value.sourceTaskId,taskName:value.taskName,score:value.score,rank:value.rank,savedAt:new Date().toISOString()};
+      const saved={personId:id,sourceTaskId:value.sourceTaskId,taskName:value.taskName,score:value.score,rank:value.rank,sourceRank:value.sourceRank,savedAt:new Date().toISOString()};
       store.byTaskId[taskId]=saved;
       store.byTaskName[normalizeTaskName(TASKS[taskId].sourceName||TASKS[taskId].name)]=saved;
     }
