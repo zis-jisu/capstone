@@ -42,10 +42,12 @@ assert(adapter.includes("roleAssignments"));
 assert(adapter.includes("a.rank-b.rank"));
 assert(adapter.includes("b.score-a.score"));
 assert(!adapter.includes("linkingSelectedPriorityTaskId"));
-assert(admin.includes("sourceRank:value.rank,rank:index+1"));
-assert(admin.includes("if(value?.personId===id)delete store.byTaskId[key]"));
-assert(admin.includes("if(previous?.personId===id){task.risk=null;task.priorityRank=null;task.priorityScore=null;}"));
-assert(!admin.includes("for(const value of normalized){"));
+assert(admin.includes("for(const value of normalized){"));
+assert(admin.includes("if(value.sourceTaskId)store.byTaskId[value.sourceTaskId]=saved"));
+assert(admin.includes("if(value.taskName)store.byTaskName[normalizeTaskName(value.taskName)]=saved"));
+assert(!admin.includes("if(value?.personId===id)delete store.byTaskId[key]"));
+assert(!admin.includes("if(previous?.personId===id){task.risk=null;task.priorityRank=null;task.priorityScore=null;}"));
+assert(html.includes('admin_adapter.js?v=20261029-priority-preserve'));
 assert(html.includes('demo_adapter.js?v=20261029-anchored-column-filter'));
 
 console.log('PASS: continuous ranks, three-state sorting, Excel-style checkbox filters, compact table');

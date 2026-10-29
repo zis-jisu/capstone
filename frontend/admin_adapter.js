@@ -695,7 +695,7 @@
     const matched=matchedCandidates.filter(([taskId])=>{
       if(seenTaskIds.has(taskId))return false;
       seenTaskIds.add(taskId);return true;
-    }).map(([taskId,value],index)=>[taskId,{...value,sourceRank:value.rank,rank:index+1}]);
+    }).map(([taskId,value])=>[taskId,value]);
     window.mlPriorityTaskIdsByPerson=window.mlPriorityTaskIdsByPerson||{};
     for(const taskId of window.mlPriorityTaskIdsByPerson[id]||[]){
       if(TASKS?.[taskId]){
@@ -705,14 +705,15 @@
       }
     }
     const store=readPriorityStore();store.byTaskId=store.byTaskId||{};store.byTaskName=store.byTaskName||{};
-    for(const [taskId,task] of taskEntries){
-      const previous=store.byTaskId[taskId]||store.byTaskName[normalizeTaskName(task.sourceName||task.name)];
-      if(previous?.personId===id){task.risk=null;task.priorityRank=null;task.priorityScore=null;}
+    // Persist the upstream result before UI matching. A temporary ID/name mismatch
+    // must never erase the last known priority or turn every row into "미산정".
+    for(const value of normalized){
+      const saved={personId:id,sourceTaskId:value.sourceTaskId,taskName:value.taskName,score:value.score,rank:value.rank,savedAt:new Date().toISOString()};
+      if(value.sourceTaskId)store.byTaskId[value.sourceTaskId]=saved;
+      if(value.taskName)store.byTaskName[normalizeTaskName(value.taskName)]=saved;
     }
-    for(const [key,value] of Object.entries(store.byTaskId))if(value?.personId===id)delete store.byTaskId[key];
-    for(const [key,value] of Object.entries(store.byTaskName))if(value?.personId===id)delete store.byTaskName[key];
     for(const [taskId,value] of matched){
-      const saved={personId:id,sourceTaskId:value.sourceTaskId,taskName:value.taskName,score:value.score,rank:value.rank,sourceRank:value.sourceRank,savedAt:new Date().toISOString()};
+      const saved={personId:id,sourceTaskId:value.sourceTaskId,taskName:value.taskName,score:value.score,rank:value.rank,savedAt:new Date().toISOString()};
       store.byTaskId[taskId]=saved;
       store.byTaskName[normalizeTaskName(TASKS[taskId].sourceName||TASKS[taskId].name)]=saved;
     }
