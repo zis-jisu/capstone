@@ -9,6 +9,17 @@ from src import demo_frontend
 
 
 class MlBridgePriorityTests(unittest.TestCase):
+    def test_training_payload_selects_temporal_snapshot(self):
+        response = io.BytesIO(b'{"status":"completed"}\n')
+        with patch.object(ml_bridge, "_open", return_value=response) as opened:
+            ml_bridge.stream_training(
+                trigger="slack_link", snapshot_key="2026-10-01"
+            )
+        self.assertEqual(opened.call_args.kwargs["payload"], {
+            "trigger": "slack_link",
+            "snapshot_key": "2026-10-01",
+        })
+
     def test_sequential_approvals_accumulate_sources_without_duplicates(self):
         approvals = [
             {"source_person_id": "U_KIM"},

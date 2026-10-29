@@ -415,7 +415,14 @@ async def demo_slack_link(body: WorkSyncRequest = WorkSyncRequest(), _=Depends(a
             if not any(node.get('id') == body.work_id for node in graph['nodes']):
                 raise ValueError('WORK-00020 is missing from the ML graph RPC')
             stage = 'training'
-            training = await asyncio.to_thread(ml_bridge.stream_training)
+            training_snapshot_key = os.getenv(
+                'ML_TRAINING_SNAPSHOT_KEY', '2026-10-01'
+            ).strip()
+            training = await asyncio.to_thread(
+                ml_bridge.stream_training,
+                trigger='slack_link',
+                snapshot_key=training_snapshot_key,
+            )
             buffer, completed = '', False
             async for chunk in training.body_iterator:
                 buffer += chunk.decode() if isinstance(chunk, bytes) else chunk
@@ -437,7 +444,8 @@ async def demo_slack_link(body: WorkSyncRequest = WorkSyncRequest(), _=Depends(a
             if not completed:
                 raise RuntimeError('ML training did not confirm completion')
             await queue.put({'status': 'completed', 'stage': 'completed', 'sync': saved,
-                             'message': 'WORK-00020 Slack 동기화 및 ML 학습 완료'})
+                             'training_snapshot_key': training_snapshot_key,
+                             'message': f'WORK-00020 Slack 동기화 및 ML 학습 완료 · 학습 그래프 {training_snapshot_key}'})
         except Exception as exc:
             detail = sync_error_detail(exc, stage)
             kinds = ','.join(sorted({type(e).__name__ for e in exception_leaves(exc)}))

@@ -83,9 +83,12 @@ def priorities(person_id=None, *, person_ids=None, receiver_person_id=None):
     with _open("/v1/priorities", method="POST", payload=payload, timeout=90) as response:
         return json.load(response)
 
-def stream_training():
+def stream_training(*, trigger="manual", snapshot_key=None):
     # Keep upstream connection open until its final NDJSON completed/failed event.
-    upstream = _open("/v1/training", method="POST", payload={"trigger": "manual"}, timeout=240)
+    payload = {"trigger": trigger}
+    if snapshot_key:
+        payload["snapshot_key"] = snapshot_key
+    upstream = _open("/v1/training", method="POST", payload=payload, timeout=240)
     def events():
         try:
             for line in upstream:

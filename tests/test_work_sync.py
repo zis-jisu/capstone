@@ -180,7 +180,7 @@ class EndpointTests(unittest.TestCase):
              patch.object(api, '_call_slack_mcp', new_callable=AsyncMock, return_value=raw()) as mcp, \
              patch('src.work_sync.apply_collection', return_value=saved), \
              patch('scripts.export_ml_rpc.fetch_graph', return_value={'nodes': [{'id': 'WORK-00020'}]}), \
-             patch.object(api.ml_bridge, 'stream_training', return_value=StreamingResponse(training())):
+             patch.object(api.ml_bridge, 'stream_training', return_value=StreamingResponse(training())) as model:
             response = self.client.post('/api/demo/slack-link')
         events = [json.loads(line) for line in response.text.splitlines()]
         self.assertEqual(response.status_code, 200)
@@ -188,6 +188,8 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(mcp.call_args.args[0], 'collect_slack_work_threads')
         self.assertEqual(mcp.call_args.args[1]['days'], 90)
         self.assertEqual([e['stage'] for e in events], ['collect', 'extract', 'saved', 'completed'])
+        model.assert_called_once_with(trigger='slack_link', snapshot_key='2026-10-01')
+        self.assertEqual(events[-1]['training_snapshot_key'], '2026-10-01')
 
     def test_training_failure_reports_saved_slack_and_training_stage(self):
         store = Mock();store.snapshot.return_value = snapshot()
@@ -204,7 +206,7 @@ class EndpointTests(unittest.TestCase):
         final = json.loads(response.text.splitlines()[-1])
         self.assertEqual(final['stage'], 'training')
         self.assertTrue(final['sync']['saved'])
-        model.assert_called_once()
+        model.assert_called_once_with(trigger='slack_link', snapshot_key='2026-10-01')
 
     def test_mcp_failure_never_starts_training(self):
         store = Mock();store.snapshot.return_value = snapshot()
