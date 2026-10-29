@@ -6,7 +6,13 @@ from unittest.mock import patch
 
 from rgae_service.api import PriorityRequest, priorities
 from rgae_service.graph import direct_task_ids
-from rgae_service.model import build_model, prepare_graph, task_impact_scores, train_model
+from rgae_service.model import (
+    build_model,
+    prepare_graph,
+    sample_negative_edges,
+    task_impact_scores,
+    train_model,
+)
 from rgae_service.priority import rank_tasks
 
 
@@ -54,6 +60,25 @@ class RgaeServiceTests(unittest.TestCase):
             seed=42,
         )
         self.assertTrue(math.isfinite(loss))
+
+    def test_saturated_relation_skips_impossible_negative(self):
+        graph = {
+            "nodes": [
+                {"id": "p1", "type": "Person"},
+                {"id": "p2", "type": "Person"},
+                {"id": "team", "type": "Team"},
+            ],
+            "edges": [
+                {"source": "p1", "target": "team", "relation": "MEMBER_OF"},
+                {"source": "p2", "target": "team", "relation": "MEMBER_OF"},
+            ],
+        }
+
+        prepared = prepare_graph(graph, seed=42)
+        negative_index, negative_type = sample_negative_edges(prepared, seed=42)
+
+        self.assertEqual(negative_index.shape, (2, 0))
+        self.assertEqual(negative_type.shape, (0,))
 
     def test_priority_formula_uses_full_graph_percentile_and_related_penalty(self):
         impacts = {

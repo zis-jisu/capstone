@@ -95,7 +95,11 @@ def prepare_graph(graph: dict[str, Any], seed: int) -> dict[str, Any]:
         )
         for edge in edges
     }
-    negative_candidate_pools: list[list[int]] = []
+    # Some relations are saturated for a source: every node of the target type
+    # is already connected by that relation. Such a positive edge has no valid
+    # type-preserving negative target. Keep the edge for message passing and
+    # positive reconstruction, but do not manufacture a false negative.
+    negative_candidate_pools: list[list[int] | None] = []
     for source, target, relation in zip(
         edge_index[0].tolist(), edge_index[1].tolist(), edge_type.tolist()
     ):
@@ -106,11 +110,7 @@ def prepare_graph(graph: dict[str, Any], seed: int) -> dict[str, Any]:
             if candidate != target
             and (source, candidate, relation) not in known_triples
         ]
-        if not valid:
-            raise RuntimeError(
-                f"negative sampling has no candidate for {(source, target, relation)}"
-            )
-        negative_candidate_pools.append(valid)
+        negative_candidate_pools.append(valid or None)
     return {
         "nodes": nodes,
         "node_to_idx": node_to_idx,
@@ -137,6 +137,8 @@ def sample_negative_edges(prepared: dict[str, Any], seed: int) -> tuple[torch.Te
         zip(edge_index[0].tolist(), edge_type.tolist())
     ):
         valid = prepared["negative_candidate_pools"][position]
+        if valid is None:
+            continue
         negative_source.append(source)
         negative_target.append(rng.choice(valid))
         negative_relation.append(relation)
