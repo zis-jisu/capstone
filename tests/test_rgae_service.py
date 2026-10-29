@@ -61,7 +61,7 @@ class RgaeServiceTests(unittest.TestCase):
         )
         self.assertTrue(math.isfinite(loss))
 
-    def test_saturated_relation_skips_impossible_negative(self):
+    def test_saturated_target_relation_corrupts_source(self):
         graph = {
             "nodes": [
                 {"id": "p1", "type": "Person"},
@@ -70,15 +70,14 @@ class RgaeServiceTests(unittest.TestCase):
             ],
             "edges": [
                 {"source": "p1", "target": "team", "relation": "MEMBER_OF"},
-                {"source": "p2", "target": "team", "relation": "MEMBER_OF"},
             ],
         }
 
         prepared = prepare_graph(graph, seed=42)
         negative_index, negative_type = sample_negative_edges(prepared, seed=42)
 
-        self.assertEqual(negative_index.shape, (2, 0))
-        self.assertEqual(negative_type.shape, (0,))
+        self.assertEqual(negative_index.tolist(), [[1], [2]])
+        self.assertEqual(negative_type.tolist(), [0])
 
     def test_priority_formula_uses_full_graph_percentile_and_related_penalty(self):
         impacts = {

@@ -95,11 +95,10 @@ def prepare_graph(graph: dict[str, Any], seed: int) -> dict[str, Any]:
         )
         for edge in edges
     }
-    # Some relations are saturated for a source: every node of the target type
-    # is already connected by that relation. Such a positive edge has no valid
-    # type-preserving negative target. Keep the edge for message passing and
-    # positive reconstruction, but do not manufacture a false negative.
-    negative_candidate_pools: list[list[int] | None] = []
+    # Match the validated notebook sampler: prefer corrupting the target while
+    # preserving its node type, then corrupt the source with the same source
+    # type when the target side is saturated.
+    negative_candidate_pools: list[tuple[str, list[int]]] = []
     for source, target, relation in zip(
         edge_index[0].tolist(), edge_index[1].tolist(), edge_type.tolist()
     ):
@@ -110,7 +109,20 @@ def prepare_graph(graph: dict[str, Any], seed: int) -> dict[str, Any]:
             if candidate != target
             and (source, candidate, relation) not in known_triples
         ]
-        negative_candidate_pools.append(valid or None)
+        if valid:
+            negative_candidate_pools.append(("target", valid))
+            continue
+        source_candidates = [
+            candidate
+            for candidate in nodes_by_type[node_type_by_idx[source]]
+            if candidate != source
+            and (candidate, target, relation) not in known_triples
+        ]
+        if not source_candidates:
+            raise RuntimeError(
+                f"negative sampling has no candidate for {(source, target, relation)}"
+            )
+        negative_candidate_pools.append(("source", source_candidates))
     return {
         "nodes": nodes,
         "node_to_idx": node_to_idx,
@@ -133,14 +145,13 @@ def sample_negative_edges(prepared: dict[str, Any], seed: int) -> tuple[torch.Te
     negative_target: list[int] = []
     negative_relation: list[int] = []
     edge_index, edge_type = prepared["edge_index"], prepared["edge_type"]
-    for position, (source, relation) in enumerate(
-        zip(edge_index[0].tolist(), edge_type.tolist())
+    for position, (source, target, relation) in enumerate(
+        zip(edge_index[0].tolist(), edge_index[1].tolist(), edge_type.tolist())
     ):
-        valid = prepared["negative_candidate_pools"][position]
-        if valid is None:
-            continue
-        negative_source.append(source)
-        negative_target.append(rng.choice(valid))
+        side, valid = prepared["negative_candidate_pools"][position]
+        candidate = rng.choice(valid)
+        negative_source.append(candidate if side == "source" else source)
+        negative_target.append(target if side == "source" else candidate)
         negative_relation.append(relation)
     return (
         torch.tensor([negative_source, negative_target], dtype=torch.long),
