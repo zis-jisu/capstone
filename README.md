@@ -81,6 +81,8 @@ X-API-Key: <MODEL_API_KEY>
 
 학습 edge 계수는 `APPROVER 31 / OWNER 27 / REVIEWER 21 / COLLABORATOR 17 / RELATED 4`이며 기타 관계는 중립 계수 15를 사용합니다. 최종 점수는 `구조 55 + 유효 마감 30 + 연속성 15 - RELATED-only 10`입니다.
 
+후속 Task 수와 유효 마감은 각 후보 Task에서 시작해 `DEPENDS_ON` 전체 경로의 완료되지 않은 Task를 순환 안전하게 추적해 계산합니다. 연속성 상태 기본점수는 `waiting 70 / in_progress 60 / planned 35 / 기타 20`이며, 활성 후속 Task 수에 따라 최대 30점을 더합니다.
+
 ### 학습
 
 | Method | Path | 용도 |

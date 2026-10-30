@@ -27,6 +27,7 @@ class RgaeServiceTests(unittest.TestCase):
                 {"id": "t2", "type": "Task", "name": "Related Task", "status": "in_progress", "due_at": "2026-10-08T00:00:00Z"},
                 {"id": "t3", "type": "Task", "name": "Other Task", "status": "in_progress", "due_at": "2026-11-30T00:00:00Z"},
                 {"id": "t4", "type": "Task", "name": "Completed", "status": "completed"},
+                {"id": "t5", "type": "Task", "name": "Indirect", "status": "pending_review", "due_at": "2026-10-07T12:00:00Z"},
             ],
             "edges": [
                 {"source": "p1", "target": "t1", "relation": "OWNER"},
@@ -34,6 +35,8 @@ class RgaeServiceTests(unittest.TestCase):
                 {"source": "p3", "target": "t3", "relation": "OWNER"},
                 {"source": "p1", "target": "t4", "relation": "OWNER"},
                 {"source": "t3", "target": "t1", "relation": "DEPENDS_ON"},
+                {"source": "t5", "target": "t3", "relation": "DEPENDS_ON"},
+                {"source": "t1", "target": "t5", "relation": "DEPENDS_ON"},
             ],
         }
 
@@ -101,6 +104,41 @@ class RgaeServiceTests(unittest.TestCase):
         self.assertEqual(by_id["t2"]["related_penalty"], 10.0)
         self.assertEqual(by_id["t1"]["source_person_ids"], ["p1"])
         self.assertEqual(by_id["t2"]["source_person_ids"], ["p2"])
+        self.assertEqual(by_id["t1"]["downstream_task_count"], 2)
+        self.assertEqual(by_id["t1"]["effective_due_at"], "2026-10-07T12:00:00+00:00")
+        self.assertEqual(by_id["t2"]["downstream_task_count"], 0)
+
+    def test_workflow_status_buckets_use_other_as_twenty(self):
+        graph = {
+            "nodes": [
+                {"id": "p1", "type": "Person"},
+                {"id": "waiting", "type": "Task", "status": "waiting"},
+                {"id": "progress", "type": "Task", "status": "in_progress"},
+                {"id": "planned", "type": "Task", "status": "planned"},
+                {"id": "review", "type": "Task", "status": "pending_review"},
+                {"id": "recurring", "type": "Task", "status": "recurring"},
+            ],
+            "edges": [
+                {"source": "p1", "target": task_id, "relation": "OWNER"}
+                for task_id in ["waiting", "progress", "planned", "review", "recurring"]
+            ],
+        }
+        impacts = {
+            task_id: {"normal_error": 0.1, "counterfactual_error": 0.2, "delta_error": 0.1}
+            for task_id in ["waiting", "progress", "planned", "review", "recurring"]
+        }
+        rows = rank_tasks(
+            graph,
+            "p1",
+            ["waiting", "progress", "planned", "review", "recurring"],
+            impacts,
+            evaluated_at=datetime(2026, 10, 7, tzinfo=timezone.utc),
+        )
+        scores = {row["task_id"]: row["workflow_score"] for row in rows}
+        self.assertEqual(
+            scores,
+            {"waiting": 70.0, "progress": 60.0, "planned": 35.0, "review": 20.0, "recurring": 20.0},
+        )
 
     def test_multi_source_counterfactual_removes_all_source_edges(self):
         prepared = prepare_graph(self.graph, seed=42)
@@ -150,6 +188,13 @@ class RgaeServiceTests(unittest.TestCase):
                 "deadline_weight": 30,
                 "workflow_weight": 15,
                 "related_only_penalty": 10,
+                "downstream_scope": "all_active_transitive_tasks",
+                "workflow_status_scores": {
+                    "waiting": 70,
+                    "in_progress": 60,
+                    "planned": 35,
+                    "other": 20,
+                },
             },
         )
         self.assertEqual(len(response["source_people"]), 2)

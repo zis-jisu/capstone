@@ -11,6 +11,13 @@ PRIORITY_POLICY = {
     "deadline_weight": 30,
     "workflow_weight": 15,
     "related_only_penalty": 10,
+    "downstream_scope": "all_active_transitive_tasks",
+    "workflow_status_scores": {
+        "waiting": 70,
+        "in_progress": 60,
+        "planned": 35,
+        "other": 20,
+    },
 }
 STRUCTURE_WEIGHT = PRIORITY_POLICY["structure_weight"] / 100
 DEADLINE_WEIGHT = PRIORITY_POLICY["deadline_weight"] / 100
@@ -29,11 +36,7 @@ ROLE_RELATIONS = {
 }
 STATUS_SCORES = {
     "waiting": 70,
-    "waiting_for_dependency": 70,
-    "waiting_for_response": 70,
-    "pending_review": 65,
     "in_progress": 60,
-    "recurring": 45,
     "planned": 35,
 }
 COMPLETED_STATUSES = {"completed", "complete", "done", "closed", "finished"}
@@ -92,6 +95,39 @@ def _percentile_scores(
     }
 
 
+def _active_downstream_tasks(
+    graph: dict[str, Any], node_by_id: dict[str, dict[str, Any]]
+) -> dict[str, set[str]]:
+    """Return every active transitive Task that depends on each Task."""
+    adjacency: dict[str, set[str]] = defaultdict(set)
+    for edge in graph["edges"]:
+        if edge["relation"] != "DEPENDS_ON":
+            continue
+        source, target = edge["source"], edge["target"]
+        if (
+            str(node_by_id.get(source, {}).get("type", "")).lower() == "task"
+            and str(node_by_id.get(target, {}).get("type", "")).lower() == "task"
+        ):
+            adjacency[target].add(source)
+
+    downstream: dict[str, set[str]] = defaultdict(set)
+    for task_id, node in node_by_id.items():
+        if str(node.get("type", "")).lower() != "task":
+            continue
+        visited = {task_id}
+        pending = list(adjacency[task_id])
+        while pending:
+            downstream_id = pending.pop()
+            if downstream_id in visited:
+                continue
+            visited.add(downstream_id)
+            downstream_node = node_by_id[downstream_id]
+            if str(downstream_node.get("status", "")).lower() not in COMPLETED_STATUSES:
+                downstream[task_id].add(downstream_id)
+            pending.extend(adjacency[downstream_id])
+    return downstream
+
+
 def rank_tasks(
     graph: dict[str, Any],
     person_ids: str | list[str],
@@ -108,7 +144,6 @@ def rank_tasks(
     candidate_set = set(candidate_task_ids)
     task_relations: dict[str, set[str]] = defaultdict(set)
     task_sources: dict[str, set[str]] = defaultdict(set)
-    downstream: dict[str, set[str]] = defaultdict(set)
 
     for edge in graph["edges"]:
         source, target, relation = edge["source"], edge["target"], edge["relation"]
@@ -119,14 +154,7 @@ def rank_tasks(
             elif target in source_ids and source in candidate_set:
                 task_relations[source].add(relation)
                 task_sources[source].add(target)
-        if relation == "DEPENDS_ON" and target in candidate_set:
-            downstream_node = node_by_id.get(source, {})
-            status = str(downstream_node.get("status", "")).lower()
-            if (
-                str(downstream_node.get("type", "")).lower() == "task"
-                and status not in COMPLETED_STATUSES
-            ):
-                downstream[target].add(source)
+    downstream = _active_downstream_tasks(graph, node_by_id)
 
     model_score = _percentile_scores(graph, impact_by_task)
     rows: list[dict[str, Any]] = []
@@ -171,6 +199,7 @@ def rank_tasks(
                 "deadline_score": deadline_score,
                 "effective_due_at": effective_due_at.isoformat() if effective_due_at else None,
                 "workflow_score": workflow_score,
+                "downstream_task_count": len(downstream[task_id]),
                 **{key: round(value, 8) for key, value in impact_by_task[task_id].items()},
             }
         )

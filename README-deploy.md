@@ -42,6 +42,8 @@ curl -X POST "$MODEL_API_URL/v1/priorities" \
 
 역할 edge 계수는 `APPROVER 31 / OWNER 27 / REVIEWER 21 / COLLABORATOR 17 / RELATED 4`, 기타 관계는 15입니다. 최종 점수는 `구조 55 + 유효 마감 30 + 연속성 15 - RELATED-only 10`입니다.
 
+후속 Task 수와 유효 마감은 각 후보 Task에서 시작해 `DEPENDS_ON` 전체 경로의 완료되지 않은 Task를 순환 안전하게 추적해 계산합니다. 연속성 상태 기본점수는 `waiting 70 / in_progress 60 / planned 35 / 기타 20`이며, 활성 후속 Task 수에 따라 최대 30점을 더합니다.
+
 우선순위 응답의 `candidate_scope`는 `direct_1hop_active_tasks`이며,
 `priority_policy`에 55/30/15/-10 운영 계수를 함께 반환해 배포된
 정책을 화면과 운영 로그에서 확인할 수 있습니다.
@@ -134,4 +136,3 @@ const response = await fetch(`${process.env.MODEL_API_URL}/v1/priorities`, {
   body: JSON.stringify({ person_id }),
 });
 ```
-
