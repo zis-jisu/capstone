@@ -18,8 +18,17 @@ router = APIRouter()
 WORK_LIMITATION = (
     "현재 전달받은 데이터는 Task 목록이며 Work 목록·Work별 점수·Work와 Task의 연결 정보가 없습니다. "
     "따라서 요청하신 Work 정보나 Work 우선순위는 확인할 수 없습니다. "
-    "Task의 이름과 점수를 Work의 값으로 대신 제시하지 않겠습니다."
+    "Work 목록과 Work별 우선순위 정보가 연결되면 확인할 수 있습니다."
 )
+
+
+def _has_entity_term(question: str, english: str, korean: str) -> bool:
+    # Treat entity names as terms, not substrings of 네트워크/워크플로/멀티태스크.
+    # Korean particles may follow a term without a space (워크의, 태스크는).
+    particles = r"(?:들)?(?:에서는|에서도|에서|별로|부터|까지|별|의|가|이|을|를|은|는|에|와|과|도|만|로|중)?"
+    english_term = rf"(?<![a-z0-9_]){re.escape(english)}s?(?![a-z0-9_])"
+    korean_term = rf"(?<![\w]){re.escape(korean)}{particles}(?![\w])"
+    return bool(re.search(english_term + '|' + korean_term, question, re.IGNORECASE))
 
 
 def _work_only_question(question: str) -> bool:
@@ -28,8 +37,9 @@ def _work_only_question(question: str) -> bool:
     Mixed Task/Work questions remain on the model path so Task parts can still be answered.
     This is term detection, not a general natural-language intent classifier.
     """
-    work = re.search(r"(?i)(?<![a-z0-9_])works?(?![a-z0-9_])|워크", question)
-    task = re.search(r"(?i)(?<![a-z0-9_])tasks?(?![a-z0-9_])|태스크|테스크", question)
+    work = _has_entity_term(question, 'work', '워크')
+    task = (_has_entity_term(question, 'task', '태스크')
+            or _has_entity_term(question, 'task', '테스크'))
     return bool(work and not task)
 
 
