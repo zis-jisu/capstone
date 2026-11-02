@@ -56,7 +56,21 @@ def configured_stores():
     return tuple(SupabaseStore(table_suffix=s) for s in suffixes)
 
 
-def read_task_messages(task_id, person_id, task_store, message_store, *, limit=20):
+def approved_handover(person_id, work_id):
+    """Reuse the existing unsuffixed, server-side handover request reader."""
+    from src.demo_frontend import _handover_db
+    rows = _handover_db(params={
+        'select': 'requester_id,work_id,status',
+        'requester_id': 'eq.' + person_id,
+        'work_id': 'eq.' + work_id,
+        'status': 'eq.approved',
+        'limit': 1,
+    })
+    return any(row.get('requester_id') == person_id and row.get('work_id') == work_id
+               and row.get('status') == 'approved' for row in rows)
+
+
+def read_task_messages(task_id, person_id, task_store, message_store, *, limit=20, handover_lookup=None):
     """Only scoped GET queries; no snapshots, fuzzy matching, or Work-wide fallback."""
     if not re.fullmatch(TASK_ID, task_id) or not re.fullmatch(r'U[A-Z0-9]+', person_id):
         raise ValueError('Invalid task/person ID')
@@ -68,21 +82,25 @@ def read_task_messages(task_id, person_id, task_store, message_store, *, limit=2
         'target_id': 'eq.' + task_id, 'target_type': 'eq.Task',
         'relation': 'in.(' + ','.join(sorted(ROLES)) + ')', 'limit': 1,
     })
-    if not any(g.get('source_id') == person_id and g.get('target_id') == task_id
+    direct_role = any(g.get('source_id') == person_id and g.get('target_id') == task_id
                and g.get('source_type') == 'Person' and g.get('target_type') == 'Task'
-               and g.get('relation') in ROLES for g in grants):
-        raise HTTPException(403, 'Task access denied')
-    tasks = task_store.request('tasks', params={'select': '*', 'task_id': 'eq.' + task_id, 'limit': 1})
-    if not tasks or tasks[0].get('task_id') != task_id:
-        raise HTTPException(404, 'Task not found')
+               and g.get('relation') in ROLES for g in grants)
     parents = task_store.request('edges', params={
         'select': 'source_id,target_id,source_type,target_type,relation',
         'target_id': 'eq.' + task_id, 'source_type': 'eq.Work', 'target_type': 'eq.Task',
-        'relation': 'eq.HAS_TASK', 'limit': 100,
+        'relation': 'eq.HAS_TASK', 'limit': 101,
     })
     work_ids = {p['source_id'] for p in parents if p.get('target_id') == task_id
                 and p.get('relation') == 'HAS_TASK' and p.get('source_type') == 'Work'
                 and p.get('target_type') == 'Task'}
+    # An inherited grant must resolve to exactly one parent in the selected
+    # dataset; a duplicated/ambiguous parent must not expand the handover scope.
+    if not direct_role and (len(parents) > 100 or len(work_ids) != 1
+                            or not (handover_lookup or approved_handover)(person_id, next(iter(work_ids)))):
+        raise HTTPException(403, 'Task access denied')
+    tasks = task_store.request('tasks', params={'select': '*', 'task_id': 'eq.' + task_id, 'limit': 1})
+    if not tasks or tasks[0].get('task_id') != task_id:
+        raise HTTPException(404, 'Task not found')
     rows = message_store.request('slack_messages', params={
         'select': SOURCE_FIELDS, 'task_id': 'eq.' + task_id,
         'order': 'slack_ts.desc,message_id.asc', 'limit': limit + 1,

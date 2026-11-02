@@ -48,6 +48,12 @@ def fixture():
 
 
 class DBRetrievalTest(unittest.TestCase):
+    def setUp(self):
+        # Unit tests never contact the real handover database.
+        self.handover_patch = patch('src.agent_db_chat.approved_handover', return_value=False)
+        self.handover = self.handover_patch.start()
+        self.addCleanup(self.handover_patch.stop)
+
     def test_table_names_must_be_configured_and_mixed_mapping_verified(self):
         for env in [{}, {'AGENT_DB_TASK_DATASET': 'mock', 'AGENT_DB_MESSAGE_DATASET': 'base'},
                     {'AGENT_DB_TASK_DATASET': 'anything', 'AGENT_DB_MESSAGE_DATASET': 'base'}]:
@@ -73,7 +79,48 @@ class DBRetrievalTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as caught:
             read_task_messages('TASK-00080', 'U999', store, store)
         self.assertEqual(caught.exception.status_code, 403)
-        self.assertEqual([t for t, _ in store.calls], ['edges'])
+        self.assertEqual([t for t, _ in store.calls], ['edges', 'edges'])
+
+    def test_approved_receiver_can_read_without_direct_task_role(self):
+        store = fixture()
+        self.handover.return_value = True
+        result = read_task_messages('TASK-00080', 'U999', store, store)
+        self.handover.assert_called_once_with('U999', 'WORK-20')
+        self.assertEqual(len(result['sources']), 2)
+
+    def test_direct_task_role_does_not_require_handover(self):
+        store = fixture()
+        read_task_messages('TASK-00080', 'U123', store, store)
+        self.handover.assert_not_called()
+
+    def test_ambiguous_or_missing_parent_cannot_inherit_approval(self):
+        for parents in [[], [dict(source_id='WORK-A', source_type='Work', target_id='TASK-00080',
+                                 target_type='Task', relation='HAS_TASK'),
+                            dict(source_id='WORK-B', source_type='Work', target_id='TASK-00080',
+                                 target_type='Task', relation='HAS_TASK')]]:
+            store = fixture()
+            store.tables['edges'] = parents
+            self.handover.return_value = True
+            with self.assertRaises(HTTPException) as caught:
+                read_task_messages('TASK-00080', 'U999', store, store)
+            self.assertEqual(caught.exception.status_code, 403)
+            self.assertFalse(any(table in ('tasks', 'slack_messages') for table, _ in store.calls))
+        self.handover.assert_not_called()
+
+    def test_approval_failure_never_reads_evidence(self):
+        store = fixture()
+        self.handover.side_effect = HTTPException(502, 'Handover database unreachable')
+        with self.assertRaises(HTTPException):
+            read_task_messages('TASK-00080', 'U999', store, store)
+        self.assertFalse(any(table in ('tasks', 'slack_messages') for table, _ in store.calls))
+
+    def test_approved_receiver_still_rejects_other_work_messages(self):
+        store = fixture()
+        self.handover.return_value = True
+        store.tables['slack_messages'][0]['work_id'] = 'WORK-OTHER'
+        result = read_task_messages('TASK-00080', 'U999', store, store)
+        self.assertEqual(len(result['sources']), 1)
+        self.assertEqual(result['rejected_message_count'], 1)
 
     def test_unrelated_role_is_not_permission(self):
         store = fixture()

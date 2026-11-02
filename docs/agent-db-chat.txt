@@ -15,6 +15,10 @@
 3. 기존 Slack 서명 세션에서 실제 사용자 ID 확인. 데모 계정만으로는 원문 접근 불가.
 4. 서버 DB의 Person -> Task 관계에서 OWNER/REVIEWER/COLLABORATOR/APPROVER/ASSIGNEE 확인.
    RELATED 관계나 클라이언트가 보낸 업무 목록은 권한으로 사용하지 않음.
+   직접 역할이 없으면 부모 Work 1개를 찾고 기존 _handover_db로
+   handover_requests의 requester_id=세션 사용자, work_id=부모 Work, status=approved 확인.
+   대기/거절/타인/다른 Work/부모 불명확/DB 오류는 원문 조회 전에 거부.
+   승인 정보는 질문마다 다시 확인하며 캐시하지 않음.
 5. 해당 Task와 부모 Work ID를 조회.
 6. slack_messages.task_id로 정확히 일치하는 원문만 최신 순으로 최대 20개 조회.
    Work만 연결된 원문이나 다른 Task의 원문으로 대체하지 않음.
@@ -47,8 +51,8 @@ text_truncated 또는 messages_limited가 있으면 일부 원문 조회임을 �
 
 남은 작업
 - 실제 DB 접속 환경변수와 서명 로그인 환경에서 조회 및 접근권한 확인.
-- 인수인계 승인만 받은 사용자에 대한 권한: 현재 새 API는 직접 Task 역할만 지원.
-  handover_requests의 approved Work 권한은 별도 연동 전까지 허용하지 않음.
+- 승인 Work 수신자 검사는 코드 연결 및 모의 승인 전환 테스트 완료.
+  실제 세션/DB REST/LLM/운영 UI 전체 흐름 검증은 남아 있음.
 - 실제 LLM 품질, 근거별 사실 일치, 응답 시간 측정.
 - 별도 검증 환경의 프론트에만 새 API를 연결하여 출처 UI 확인.
 - Work 전체 순위는 여전히 미지원. Task 원문 조회가 Work ML 순위를 제공하지 않음.
@@ -57,3 +61,4 @@ text_truncated 또는 messages_limited가 있으면 일부 원문 조회임을 �
 python -m unittest discover -s tests -p test_agent_db_chat.py -v
 외부 DB/LLM 없이 가상 저장소와 모의 모델로 동작 확인.
 현재 코드에서는 GET 조회만 사용하며 DB 스키마 생성/수정/삭제를 수행하지 않음.
+2026-11-03 승인 연동 후 Python 40개 및 Node UI 검사 통과.
