@@ -123,6 +123,11 @@ def demo_adapter(_=Depends(demo_auth)):
     return FileResponse(ROOT / 'frontend' / 'demo_adapter.js', media_type='application/javascript', headers={'Cache-Control': 'no-store'})
 
 
+@app.get('/agent_db_ui.js', include_in_schema=False)
+def agent_db_ui(_=Depends(demo_auth)):
+    return FileResponse(ROOT / 'frontend' / 'agent_db_ui.js', media_type='application/javascript', headers={'Cache-Control': 'no-store'})
+
+
 
 @app.get('/api/demo/my-works')
 def demo_my_works(person_id: str = '', _=Depends(demo_auth), identity=Depends(slack_actor)):

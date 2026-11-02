@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from fastapi import HTTPException
-from src.agent_db_chat import DBChatRequest, ask_db_agent, configured_stores, read_task_messages
+from src.agent_db_chat import DBChatRequest, ask_db_agent, chat_config, configured_stores, read_task_messages
 
 
 class MemoryStore:
@@ -105,6 +105,14 @@ class DBRetrievalTest(unittest.TestCase):
 
 
 class DBChatTest(unittest.TestCase):
+    def test_frontend_configuration_uses_explicit_server_switch(self):
+        import json
+        for enabled, endpoint in [('1', '/api/chat/db'), ('0', '/api/chat')]:
+            with self.subTest(enabled=enabled), patch.dict(os.environ, {'API_ACCESS_TOKEN': 'test', 'AGENT_DB_ENABLED': enabled}, clear=True):
+                result = chat_config('Bearer test')
+                self.assertEqual(json.loads(result.body)['endpoint'], endpoint)
+                self.assertEqual(result.headers['cache-control'], 'no-store')
+
     def setUp(self):
         self.req = DBChatRequest(question='완료한 것과 다음 할 일은?', task_id='TASK-00080')
         self.env = {'API_ACCESS_TOKEN': 'test', 'AGENT_DB_ENABLED': '1', 'OPENAI_API_KEY': 'fake'}

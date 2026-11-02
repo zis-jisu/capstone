@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from src.luna_api import MODEL, call_text
@@ -13,6 +14,16 @@ router = APIRouter()
 TASK_ID = r'^TASK-[A-Za-z0-9_-]+$'
 SOURCE_FIELDS = 'message_id,task_id,work_id,author_id,author_name,channel,slack_ts,text'
 ROLES = {'OWNER', 'REVIEWER', 'COLLABORATOR', 'APPROVER', 'ASSIGNEE'}
+
+
+@router.get('/api/chat/config')
+def chat_config(authorization: str | None = Header(default=None)):
+    from src.agent_chat import _authorize
+    _authorize(authorization)
+    enabled = os.getenv('AGENT_DB_ENABLED') == '1'
+    return JSONResponse({'db_enabled': enabled, 'endpoint': '/api/chat/db' if enabled else '/api/chat',
+                         'mode': 'db_slack_task' if enabled else 'frontend_context'},
+                        headers={'Cache-Control': 'no-store'})
 
 
 class DBChatMessage(BaseModel):
@@ -114,7 +125,7 @@ def read_task_messages(task_id, person_id, task_store, message_store, *, limit=2
 
 @router.post('/api/chat/db')
 def ask_db_agent(req: DBChatRequest, request: Request, authorization: str | None = Header(default=None)):
-    from src.agent_chat import _authorize, _work_only_question, WORK_LIMITATION
+    from src.agent_chat import _authorize
     _authorize(authorization)
     if os.getenv('AGENT_DB_ENABLED') != '1':
         raise HTTPException(503, 'DB chat is disabled')
@@ -126,6 +137,12 @@ def ask_db_agent(req: DBChatRequest, request: Request, authorization: str | None
         raise
     except (RuntimeError, ValueError, OSError) as exc:
         raise HTTPException(502, 'DB evidence lookup failed') from exc
+    return answer_db_context(req, context)
+
+
+def answer_db_context(req: DBChatRequest, context):
+    """Generate from already-authorized evidence; caller must enforce access first."""
+    from src.agent_chat import _work_only_question, WORK_LIMITATION
     common = {'mode': 'db_slack_task', 'slack_rag_connected': True,
               'retrieval_method': 'exact_task_id', 'task_id': req.task_id,
               'messages_limited': context['messages_limited'],
