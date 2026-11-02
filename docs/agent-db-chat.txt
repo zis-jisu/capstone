@@ -1,0 +1,59 @@
+선택 Task의 DB Slack 원문 연결 — 검토용, 미배포
+
+새 파일: src/agent_db_chat.py
+연결 위치: src/agent_chat.py에서 기존 router에 새 router 포함.
+새 API: POST /api/chat/db
+기존 POST /api/chat과 프론트 호출은 변경하지 않음.
+
+요청 예
+{"question":"이 업무에서 완료된 것과 다음 확인 사항을 근거와 함께 알려줘.","task_id":"TASK-00080","history":[]}
+브라우저의 tasks, owner, person_id, 원문은 이 API의 조회 근거로 사용하지 않음.
+
+처리 순서
+1. 기존 API 토큰/데모 Basic 인증 확인.
+2. AGENT_DB_ENABLED=1일 때만 실행.
+3. 기존 Slack 서명 세션에서 실제 사용자 ID 확인. 데모 계정만으로는 원문 접근 불가.
+4. 서버 DB의 Person -> Task 관계에서 OWNER/REVIEWER/COLLABORATOR/APPROVER/ASSIGNEE 확인.
+   RELATED 관계나 클라이언트가 보낸 업무 목록은 권한으로 사용하지 않음.
+5. 해당 Task와 부모 Work ID를 조회.
+6. slack_messages.task_id로 정확히 일치하는 원문만 최신 순으로 최대 20개 조회.
+   Work만 연결된 원문이나 다른 Task의 원문으로 대체하지 않음.
+   메시지의 work_id가 있으면 부모 Work와도 대조. 다르면 제외.
+7. DB 업무 카드와 원문을 모델에 전달하고 [S1] 형식 출처를 요구.
+8. 실제 존재하는 출처만 반환. 출처 번호가 없거나 잘못되면 오류 처리.
+9. 원문이 없으면 모델을 호출하지 않고 원문 없음 안내.
+
+서버 설정(별도 테스트 환경에서만)
+- SUPABASE_URL, SUPABASE_KEY: 기존 서버 전용 환경변수.
+- OPENAI_API_KEY: 서버 전용. 코드/브라우저/채팅에 넣지 않음.
+- 기존 Slack 로그인 설정과 서명 세션 필요.
+- AGENT_DB_ENABLED=1
+- AGENT_DB_TASK_DATASET=base 또는 mock: tasks/edges 조회 테이블 결정.
+- AGENT_DB_MESSAGE_DATASET=base 또는 mock: slack_messages 조회 테이블 결정.
+- 서로 다른 데이터셋이면 AGENT_DB_MAPPING_VERIFIED=1도 필요.
+  실제 Task ID/업무와 메시지 연결을 대조한 후에만 설정.
+
+관측 데이터
+화면은 mock 테이블 사용, 보내주신 원문은 base slack_messages 데이터로 보임.
+최종 데이터셋 선택은 실제 DB에서 검증 후 결정해야 하며 자동으로 섞지 않음.
+보내주신 23개 원문에서는 TASK-00080에 직접 연결된 2개를 정확히 조회하는 것을 확인.
+이 확인은 파일 기반이며 실제 DB/사용자 권한/LLM 호출은 아님.
+
+출처 표시
+응답 sources의 id, message_id, author_name, slack_ts, timestamp_utc, text를 표시.
+문서 링크를 Slack 원문 URL이라고 표시하지 않으며 없는 원문 URL을 생성하지 않음.
+text_truncated 또는 messages_limited가 있으면 일부 원문 조회임을 표시.
+프론트 연결 시 기존 'Slack 원문 미연결' 고정 문구 대신 응답 mode/상태를 사용해야 함.
+
+남은 작업
+- 실제 DB 접속 환경변수와 서명 로그인 환경에서 조회 및 접근권한 확인.
+- 인수인계 승인만 받은 사용자에 대한 권한: 현재 새 API는 직접 Task 역할만 지원.
+  handover_requests의 approved Work 권한은 별도 연동 전까지 허용하지 않음.
+- 실제 LLM 품질, 근거별 사실 일치, 응답 시간 측정.
+- 별도 검증 환경의 프론트에만 새 API를 연결하여 출처 UI 확인.
+- Work 전체 순위는 여전히 미지원. Task 원문 조회가 Work ML 순위를 제공하지 않음.
+
+검증
+python -m unittest discover -s tests -p test_agent_db_chat.py -v
+외부 DB/LLM 없이 가상 저장소와 모의 모델로 동작 확인.
+현재 코드에서는 GET 조회만 사용하며 DB 스키마 생성/수정/삭제를 수행하지 않음.
