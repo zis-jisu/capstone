@@ -35,7 +35,7 @@ async function scenario(config,result,status=200){
  s.select('TASK-00079');await s.send('다른 업무는?');posts=s.requests.filter(x=>x.method==='POST');assert.strictEqual(JSON.parse(posts[2].body).history.length,0);
  console.log('PASS DB payload, same-origin credentials, safe rendering, source display, scoped history');
  const denied=await scenario(db,{detail:'Task access denied'},403);await denied.send('원문?');
- assert(denied.elements['chat-box'].textContent.includes('조회 권한'));assert.strictEqual(denied.elements['ask-input'].disabled,false);
+ assert(denied.elements['chat-box'].textContent.includes('권한이 없습니다'));assert.strictEqual(denied.elements['ask-input'].disabled,false);
  console.log('PASS access errors and input recovery');
  const fallback=await scenario({db_enabled:false,endpoint:'/api/chat',mode:'frontend_context'}, {answer:'테스트',mode:'frontend_context'});
  await fallback.send('상태?');const fallbackPost=fallback.requests.find(x=>x.method==='POST');assert.strictEqual(fallbackPost.url,'/api/chat');assert(Array.isArray(JSON.parse(fallbackPost.body).tasks));
@@ -44,9 +44,4 @@ async function scenario(config,result,status=200){
  console.log('PASS unsaved Task is not sent to DB');
  const failed=await scenario(db,ok);failed.context.fetch=async()=>({ok:false});await failed.send('상태?');assert(failed.elements['chat-box'].textContent.includes('연결 설정'));
  console.log('PASS config failure does not silently fall back');
- const demo=await scenario({db_enabled:true,endpoint:'/api/chat/db/demo',mode:'db_slack_demo',demo_people:{'원이정':'U0C20G9MRML'}},ok);
- demo.elements['handover-login-account']=new Element();demo.elements['handover-login-account'].value='원이정';
- await demo.send('원문?');const dp=JSON.parse(demo.requests.find(x=>x.method==='POST').body);
- assert.strictEqual(dp.demo_person_id,'U0C20G9MRML');assert(!dp.tasks);
- console.log('PASS shared-account demo sends explicit simulated role');
 })().catch(error=>{console.error(error);process.exitCode=1});

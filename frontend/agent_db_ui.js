@@ -20,7 +20,6 @@
   }
   function modeLabel(c) {
     return c.mode === 'local_db_export' ? '로컬 DB 복사본 · 실제 AI · 테스트 역할' :
-      c.mode === 'db_slack_demo' ? 'DB·Slack 원문 · 데모 역할 기준' :
       c.db_enabled ? 'DB 업무 · Slack 원문 기반' : '화면의 업무 정보 기반 · Slack 원문 미연결';
   }
   function appendSources(card, result) {
@@ -60,22 +59,19 @@
     const requestSession=session;
     try {
       const c=await config();byId('agent-data-status').textContent=modeLabel(c);
-      const demoPerson=c.mode==='db_slack_demo' ? c.demo_people?.[byId('handover-login-account')?.value] : null;
-      const scope=c.mode+':'+taskId+':'+(demoPerson||window.linkingLocalTestPersonId||'session');
+      const scope=c.mode+':'+taskId+':'+(window.linkingLocalTestPersonId||'session');
       if(historyScope!==scope){history=[];historyScope=scope;}
       if(c.db_enabled&&!/^TASK-[A-Za-z0-9_-]+$/.test(taskId))throw Error('이 업무는 아직 DB에 저장되지 않았습니다. 저장된 업무를 선택해 주세요.');
       const payload={question,task_id:taskId,history:history.slice(-6)};
-      if(c.mode==='db_slack_demo'){if(!demoPerson)throw Error('데모 사용자를 선택한 뒤 다시 질문해 주세요.');payload.demo_person_id=demoPerson;}
       if(!c.db_enabled)payload.tasks=agentTaskContext();
       const headers={'Content-Type':'application/json'};
       if(c.mode==='local_db_export') {headers['X-Preview-Token']=c.csrf;payload.preview_person_id=window.linkingLocalTestPersonId||'U0C20G9MRML';}
       const response=await fetch(c.endpoint,{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(payload)});
       const result=await response.json();
-      if(!response.ok){const friendly={401:c.mode==='db_slack_demo'?'공통 계정 로그인이 필요합니다.':'Slack 로그인이 필요합니다. 로그인 후 다시 질문해 주세요.',403:'이 업무는 조회 권한 또는 데모 허용 범위에 포함되지 않습니다.',503:'업무 Agent 연결 설정이 준비되지 않았습니다.'};throw Error(friendly[response.status]||(typeof result.detail==='string'?result.detail:result.error)||'질문 처리에 실패했습니다.');}
+      if(!response.ok){const friendly={401:'Slack 로그인이 필요합니다. 로그인 후 다시 질문해 주세요.',403:'이 업무의 원문을 조회할 권한이 없습니다.',503:'업무 Agent 연결 설정이 준비되지 않았습니다.'};throw Error(friendly[response.status]||(typeof result.detail==='string'?result.detail:result.error)||'질문 처리에 실패했습니다.');}
       if(!result.answer)throw Error('Agent 응답이 비어 있습니다.');
       textBlock(answer,result.answer);
-      source.textContent=(result.mode==='local_db_export'?'로컬 DB 복사본 · ':result.mode==='db_slack_demo'?'DB 조회 · 데모 역할 · ':result.mode==='db_slack_task'?'DB 조회 · ':'화면 업무 정보 · ')+(result.llm_called===false?'AI 생성 없이 안내':'AI 답변');
-      if(result.access_notice){const notice=document.createElement('p');notice.className='mt-2 text-[11px] text-[#8B95A1]';notice.textContent=result.access_notice;card.append(notice);}
+      source.textContent=(result.mode==='local_db_export'?'로컬 DB 복사본 · ':result.mode==='db_slack_task'?'DB 조회 · ':'화면 업무 정보 · ')+(result.llm_called===false?'AI 생성 없이 안내':'AI 답변');
       appendSources(card,result);
       if(result.messages_limited){const note=document.createElement('p');note.className='mt-2 text-[11px] text-[#8B95A1]';note.textContent='일부 최신 원문만 조회한 답변입니다.';card.append(note);}
       if(session===requestSession&&historyScope===scope){history.push({role:'user',content:question},{role:'assistant',content:result.answer});history=history.slice(-8);}
