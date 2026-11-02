@@ -46,6 +46,28 @@ class WorkScopeTest(unittest.TestCase):
                 ask_agent(self.request('Work 순위는?'), 'Bearer wrong')
         self.assertEqual(caught.exception.status_code, 401)
 
+    def test_unrelated_words_do_not_block_task_questions(self):
+        for question in ['네트워크 점검 업무 상태는?', '워크플로 수정의 담당자는?',
+                         'framework 배포 상태 알려줘', 'homework 마감은?',
+                         '멀티태스크 작업 상태 알려줘']:
+            with self.subTest(question=question), patch.dict(os.environ, {'API_ACCESS_TOKEN': 't', 'OPENAI_API_KEY': 'fake'}, clear=True), patch('src.agent_chat.call_text', return_value=('테스트 답변', {})) as call:
+                result = ask_agent(self.request(question), 'Bearer t')
+                call.assert_called_once()
+                self.assertEqual(result['answer'], '테스트 답변')
+
+    def test_korean_entity_particles(self):
+        for question in ['워크의 점수는?', '워크별로 순위를 알려줘', '워크들 중 가장 급한 것은?', '워크에서는 누가 담당이야?']:
+            with self.subTest(question=question), patch.dict(os.environ, {'API_ACCESS_TOKEN': 't'}, clear=True), patch('src.agent_chat.call_text') as call:
+                result = ask_agent(self.request(question), 'Bearer t')
+                call.assert_not_called()
+                self.assertEqual(result['answer_type'], 'insufficient_work_context')
+
+    def test_korean_mixed_question_keeps_task_part_available(self):
+        for question in ['워크와 태스크의 순위를 각각 알려줘', '워크의 점수와 테스크의 담당자를 알려줘']:
+            with self.subTest(question=question), patch.dict(os.environ, {'API_ACCESS_TOKEN': 't', 'OPENAI_API_KEY': 'fake'}, clear=True), patch('src.agent_chat.call_text', return_value=('테스트 답변', {})) as call:
+                ask_agent(self.request(question), 'Bearer t')
+                call.assert_called_once()
+
     def test_task_and_mixed_questions_keep_current_context_and_llm_path(self):
         for question in ['전체 Task 1위는?', '현재 업무 상태는?', 'Work와 Task를 구분해서 알려줘']:
             with self.subTest(question=question), patch.dict(os.environ, {'API_ACCESS_TOKEN': 't', 'OPENAI_API_KEY': 'fake'}, clear=True), patch('src.agent_chat.call_text', return_value=('테스트 답변', {})) as call:
