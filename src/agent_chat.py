@@ -1,7 +1,4 @@
-"""Frontend-context grounded 업무 Agent chat.
-
-Slack RAG retrieval is intentionally not connected at this stage.
-"""
+"""Frontend chat plus a separate opt-in, authorized DB/Slack Task route."""
 import base64
 import binascii
 import os
@@ -171,3 +168,8 @@ def ask_agent(req: ChatRequest, authorization: str | None = Header(default=None)
         ],
         "slack_rag_connected": False,
     }
+
+
+# The existing frontend route is unchanged; DB retrieval requires a separate request.
+from src.agent_db_chat import router as db_chat_router
+router.include_router(db_chat_router)
