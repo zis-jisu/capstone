@@ -14,12 +14,28 @@ router = APIRouter()
 TASK_ID = r'^TASK-[A-Za-z0-9_-]+$'
 SOURCE_FIELDS = 'message_id,task_id,work_id,author_id,author_name,channel,slack_ts,text'
 ROLES = {'OWNER', 'REVIEWER', 'COLLABORATOR', 'APPROVER', 'ASSIGNEE'}
+DEMO_PEOPLE = {'원이정': 'U0C20G9MRML', '김지수': 'U0C22C8M742',
+               '박서연': 'U0C6WSR5275', '최민준': 'U0C38J2MUF4'}
+
+
+def demo_task_scope():
+    if os.getenv('AGENT_DB_DEMO_DATA_VERIFIED') != '1':
+        raise HTTPException(503, 'Review and approve demo-only evidence before enabling demo chat')
+    ids = [v.strip() for v in os.getenv('AGENT_DB_DEMO_TASK_IDS', '').split(',') if v.strip()]
+    if not ids or len(ids) > 20 or any(not re.fullmatch(TASK_ID, v) for v in ids):
+        raise HTTPException(503, 'Configure an explicit demo Task allowlist (maximum 20)')
+    return set(ids)
 
 
 @router.get('/api/chat/config')
 def chat_config(authorization: str | None = Header(default=None)):
     from src.agent_chat import _authorize
     _authorize(authorization)
+    if os.getenv('AGENT_DB_DEMO_ENABLED') == '1':
+        demo_task_scope()
+        return JSONResponse({'db_enabled': True, 'endpoint': '/api/chat/db/demo',
+                             'mode': 'db_slack_demo', 'demo_people': DEMO_PEOPLE,
+                             'identity_verified': False}, headers={'Cache-Control': 'no-store'})
     enabled = os.getenv('AGENT_DB_ENABLED') == '1'
     return JSONResponse({'db_enabled': enabled, 'endpoint': '/api/chat/db' if enabled else '/api/chat',
                          'mode': 'db_slack_task' if enabled else 'frontend_context'},
@@ -35,6 +51,10 @@ class DBChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     task_id: str = Field(pattern=TASK_ID, max_length=120)
     history: list[DBChatMessage] = Field(default_factory=list, max_length=10)
+
+
+class DemoDBChatRequest(DBChatRequest):
+    demo_person_id: str = Field(pattern=r'^U[A-Z0-9]+$', max_length=40)
 
 
 def verified_actor(request):
@@ -138,6 +158,36 @@ def ask_db_agent(req: DBChatRequest, request: Request, authorization: str | None
     except (RuntimeError, ValueError, OSError) as exc:
         raise HTTPException(502, 'DB evidence lookup failed') from exc
     return answer_db_context(req, context)
+
+
+@router.post('/api/chat/db/demo')
+def ask_demo_db_agent(req: DemoDBChatRequest, authorization: str | None = Header(default=None)):
+    """Shared-account demo only. A selected person is a simulated role, never real identity.
+
+    Every holder of the shared account can select every demo role. Only allowlisted,
+    reviewed demo evidence may be exposed here. The verified route remains separate.
+    """
+    from src.agent_chat import _authorize, _basic_credentials
+    _authorize(authorization)
+    if _basic_credentials(authorization or '') is None:
+        raise HTTPException(401, 'Shared demo Basic login required')
+    if os.getenv('AGENT_DB_DEMO_ENABLED') != '1':
+        raise HTTPException(503, 'Demo DB chat is disabled')
+    if req.task_id not in demo_task_scope():
+        raise HTTPException(403, 'This Task is outside the approved demo scope')
+    if req.demo_person_id not in DEMO_PEOPLE.values():
+        raise HTTPException(403, 'Unknown demo role')
+    try:
+        task_store, message_store = configured_stores()
+        context = read_task_messages(req.task_id, req.demo_person_id, task_store, message_store)
+    except HTTPException:
+        raise
+    except (RuntimeError, ValueError, OSError) as exc:
+        raise HTTPException(502, 'DB evidence lookup failed') from exc
+    result = answer_db_context(req, context)
+    return {**result, 'mode': 'db_slack_demo', 'identity_verified': False,
+            'demo_person_id': req.demo_person_id,
+            'access_notice': '공통 계정의 데모 역할로 조회했습니다. 실제 사용자 인증 결과가 아닙니다.'}
 
 
 def answer_db_context(req: DBChatRequest, context):

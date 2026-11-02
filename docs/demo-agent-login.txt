@@ -1,0 +1,31 @@
+공통 계정 + 사용자 선택 데모 사이트 연결
+
+새 경로: POST /api/chat/db/demo
+기존 검증 Slack 세션 경로 /api/chat/db는 변경하지 않습니다.
+
+공통 계정 로그인은 사이트 접근만 확인하며, 선택 사용자는 데모 역할입니다.
+계정 공유자는 모든 데모 역할을 선택할 수 있으므로 실제 개인별 권한으로 간주하면 안 됩니다.
+서버에서 검토·승인한 데모 원문만 이 경로에 노출해야 합니다.
+
+기본 비활성화. 서버 설정을 명시한 경우에만 사용:
+AGENT_DB_DEMO_ENABLED=1
+AGENT_DB_DEMO_DATA_VERIFIED=1
+AGENT_DB_DEMO_TASK_IDS=승인한_Task_ID들의_쉼표_목록 (최대 20개, 예시는 TASK-00080)
+AGENT_DB_TASK_DATASET=base
+AGENT_DB_MESSAGE_DATASET=base
+기존 DEMO_USERNAME/DEMO_PASSWORD, SUPABASE_URL/SUPABASE_KEY, OPENAI_API_KEY는 서버에서 유지.
+DATA_VERIFIED는 해당 업무의 메시지가 데모 계정 공유자에게 보여도 되는지 실제 검토 후 설정.
+단순히 연결을 성공시키려고 검토 없이 이 값을 설정하지 말 것.
+
+프론트는 /api/chat/config에서 이 경로를 선택하고 기존 사용자 선택값을 demo_person_id로 전달합니다.
+DB 업무 허용목록 밖 요청은 저장소 조회 전에 거부합니다.
+허용 업무 안에서도 선택 역할의 DB 관계를 검사합니다. 이 검사는 역할 시뮬레이션이지 신원 증명이 아닙니다.
+API 응답 identity_verified=false와 access_notice를 표시합니다.
+실제 Slack 인증 경로의 조건은 완화하지 않았습니다.
+
+검증: Python 37개 테스트 통과, Node 프론트 계약 테스트 통과.
+공통 계정·허용목록·선택 역할·범위 밖 요청·기본 비활성·기존 인증 보존을 확인.
+DB/LLM은 모의 처리한 코드 검증이며 실제 배포 검증과 구분.
+기존 실제 LLM 로컬 검증 5문항과 UI 경로 추가 호출은 DB 복사본 기반 결과입니다.
+
+실제 사이트와 DB 설정은 변경하지 않았습니다.
