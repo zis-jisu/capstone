@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from src.luna_api import MODEL, call_text
+from src.agent_contacts import ContactContext, contact_answer, contact_question
 
 router = APIRouter()
 TASK_ID = r'^TASK-[A-Za-z0-9_-]+$'
@@ -68,6 +69,43 @@ def approved_handover(person_id, work_id):
     })
     return any(row.get('requester_id') == person_id and row.get('work_id') == work_id
                and row.get('status') == 'approved' for row in rows)
+
+
+def db_contact_context(task_id, person_id, work_ids, store):
+    """Only called after Task authorization. RELATED finds contacts, not grants."""
+    if len(work_ids) != 1:
+        return None
+    work_id = next(iter(work_ids))
+    from src.demo_frontend import _handover_db
+    records = _handover_db(params={'select': 'requester_id,work_id,status,source_person_id',
+                                  'requester_id': 'eq.' + person_id, 'work_id': 'eq.' + work_id,
+                                  'status': 'eq.approved', 'limit': 101})
+    if len(records) > 100:
+        return None
+    records = [r for r in records if r.get('requester_id') == person_id
+               and r.get('work_id') == work_id and r.get('status') == 'approved']
+    absent_ids = {r.get('source_person_id') for r in records}
+    if not absent_ids or any(not isinstance(pid, str) or not re.fullmatch(r'U[A-Z0-9]+', pid) for pid in absent_ids):
+        return None
+    links = store.request('edges', params={'select': 'source_id,source_type,target_id,target_type,relation',
+        'source_type': 'eq.Person', 'target_type': 'eq.Task', 'target_id': 'eq.' + task_id,
+        'relation': 'in.(' + ','.join(sorted(ROLES | {'RELATED'})) + ')', 'limit': 101})
+    if len(links) > 100:
+        return None
+    links = [e for e in links if e.get('source_type') == 'Person' and e.get('target_type') == 'Task'
+             and e.get('target_id') == task_id and e.get('relation') in ROLES | {'RELATED'}
+             and isinstance(e.get('source_id'), str) and re.fullmatch(r'U[A-Z0-9]+', e['source_id'])]
+    ids = {e['source_id'] for e in links} | absent_ids | {person_id}
+    people = store.request('persons', params={'select': 'person_id,name',
+                          'person_id': 'in.(' + ','.join(sorted(ids)) + ')', 'limit': 300})
+    names = {p['person_id']: p.get('name') for p in people if p.get('person_id') in ids
+             and isinstance(p.get('name'), str) and p['name'].strip()}
+    if not absent_ids.issubset(names) or person_id not in names:
+        return None
+    return ContactContext(current_person_id=person_id, current_person_name=names[person_id],
+        absence_known=True, absent_people=[{'person_id': pid, 'name': names[pid]} for pid in sorted(absent_ids)],
+        candidates=[{'person_id': e['source_id'], 'name': names[e['source_id']], 'role': e['relation']}
+                    for e in links if e['source_id'] in names])
 
 
 def read_task_messages(task_id, person_id, task_store, message_store, *, limit=20, handover_lookup=None):
@@ -136,7 +174,7 @@ def read_task_messages(task_id, person_id, task_store, message_store, *, limit=2
     task = {key: tasks[0].get(key) for key in (
         'task_id', 'title', 'subject', 'name', 'status', 'deadline_text', 'deadline_at',
         'due_at', 'next_action')}
-    return {'task': task, 'sources': messages,
+    return {'task': task, 'sources': messages, 'work_ids': sorted(work_ids),
             'messages_limited': len(rows) > limit or remaining <= 0,
             'rejected_message_count': rejected}
 
@@ -151,6 +189,9 @@ def ask_db_agent(req: DBChatRequest, request: Request, authorization: str | None
     try:
         task_store, message_store = configured_stores()
         context = read_task_messages(req.task_id, identity['person_id'], task_store, message_store)
+        if contact_question(req.question):
+            context['contact_context'] = db_contact_context(req.task_id, identity['person_id'],
+                                                           context['work_ids'], task_store)
     except HTTPException:
         raise
     except (RuntimeError, ValueError, OSError) as exc:
@@ -165,6 +206,9 @@ def answer_db_context(req: DBChatRequest, context):
               'retrieval_method': 'exact_task_id', 'task_id': req.task_id,
               'messages_limited': context['messages_limited'],
               'rejected_message_count': context['rejected_message_count']}
+    if contact_question(req.question):
+        return {**common, 'answer': contact_answer(req.question, context.get('contact_context')),
+                'sources': [], 'model': None, 'llm_called': False, 'answer_type': 'contact_recommendation'}
     if _work_only_question(req.question):
         return {**common, 'answer': WORK_LIMITATION, 'sources': [], 'model': None,
                 'llm_called': False, 'answer_type': 'insufficient_work_context'}
