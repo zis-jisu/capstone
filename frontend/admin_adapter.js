@@ -166,7 +166,7 @@
  const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  async function api(path='',method='GET',data=null){
   const res=await fetch(API+path,{method,credentials:'same-origin',cache:'no-store',headers:{...(data?{'Content-Type':'application/json'}:{}),...(authToken?{'X-Handover-Access-Token':authToken}:{})},body:data?JSON.stringify(data):undefined});
-  if(!res.ok)throw new Error('인수인계 서버 요청 실패 (HTTP '+res.status+')');
+  if(!res.ok){let d='';try{d=(await res.json()).detail||'';}catch(_){}throw new Error(d||('인수인계 요청 실패 (HTTP '+res.status+')'));}
   return res.json();
  }
  async function load(){return (await api()).requests.map(r=>({
@@ -291,13 +291,29 @@
   const pending=all.filter(r=>r.status==='pending');
   updateInboxBadge();
   let body=pending.length?pending.map(r=>'<div class="mb-3 rounded-2xl border p-4"><div class="font-bold">'+safe(r.requester)+' → '+safe(r.owner)+'</div><div class="mt-2 text-[13px]">'+safe(r.title)+'</div><div class="mt-3 flex gap-2"><button data-verify="'+safe(r.id)+'" class="rounded-xl bg-[#3182F6] px-4 py-2 text-[12px] font-bold text-white">유비키 인증·승인</button><button data-reject="'+safe(r.id)+'" class="rounded-xl border px-4 py-2 text-[12px]">반려</button></div></div>').join(''):'<div class="rounded-xl bg-[#F8F9FA] p-5 text-[13px]">대기 중인 인수인계 요청이 없습니다.</div>';
-  const done=all.filter(r=>r.status!=='pending');
+  if(pending.length)body='<div class="mb-4 flex justify-end"><button id="handover-bulk-approve" class="rounded-xl bg-[#191F28] px-5 py-3 text-[13px] font-bold text-white">전체 승인하기 ('+pending.length+'건)</button></div>'+body;
+ const done=all.filter(r=>r.status!=='pending');
   if(done.length)body+='<h3 class="mt-5 mb-2 font-bold">처리 이력</h3>'+done.map(r=>'<div class="flex items-center justify-between gap-3 border-b py-3 text-[12px]"><span>'+safe(r.requester)+' → '+safe(r.owner)+' · '+safe(r.approvedBy)+'</span>'+approvalBadge(r.status)+'</div>').join('');
   panel(actor==='팀장'?'팀장 인수인계 승인함 (UI 시연 전용)':'김지수 인수인계 승인함',body);
-  el('handover-demo-panel').querySelectorAll('[data-verify]').forEach(b=>b.onclick=()=>verify(b.dataset.verify));
+  const bulkButton=el('handover-bulk-approve');if(bulkButton)bulkButton.onclick=approveAll;
+ el('handover-demo-panel').querySelectorAll('[data-verify]').forEach(b=>b.onclick=()=>verify(b.dataset.verify));
   el('handover-demo-panel').querySelectorAll('[data-reject]').forEach(b=>b.onclick=()=>decide(b.dataset.reject,'rejected'));
  }
  const approvalInFlight=new Set();
+ let bulkBusy=false;
+ async function approveAll(){
+  if(bulkBusy)return;
+  const actorId=PERSON_IDS[actor];
+  try{
+   const pending=(await load()).filter(r=>r.status==='pending'&&(actor==='팀장'?!verifiedMode:r.sourceId===actorId));
+   if(!pending.length)return message('승인할 업무가 없습니다.');
+   bulkBusy=true;
+   if(actor==='팀장'&&!verifiedMode){pending.forEach(r=>saveManagerApproval(r.id,'approved'));message('팀장 UI 시연 승인 '+pending.length+'건 · DB 미반영');}
+   else{const out=await api('/bulk-decision','POST',{actor_id:actorId,request_ids:pending.map(r=>r.id)});message(out.approved+'건 승인 완료'+(out.priority_warning?' · ML 우선순위 처리 일부 실패':''));}
+   await inbox();updateInboxBadge();
+  }catch(e){message(e.message);}finally{bulkBusy=false;}
+ }
+
  async function verify(id){
   if(approvalInFlight.has(id))return;
   approvalInFlight.add(id);
@@ -382,7 +398,7 @@
   const name=el('import-action-title'),summary=el('import-selection-summary'),btn=el('import-action-btn'),slack=el('slack-access-panel');
   if(slack)slack.classList.add('hidden');
   btn.classList.add('disabled:opacity-50','disabled:cursor-not-allowed');
-  if(importState.step===1){name.textContent='인수인계 승인 요청';btn.textContent='선택 업무 승인 요청';btn.onclick=requestImportApproval;}
+  if(importState.step===1){name.textContent='인수인계 승인 요청';btn.textContent='전체 요청하기';btn.onclick=requestImportApproval;}
   else {name.textContent='승인 대기';summary.textContent=importState.person+'님이 승인하면 선택한 업무만 이어받을 수 있어요.';btn.textContent='요청 상태 확인';btn.onclick=()=>{closeImport();received()};}
  };
  requestImportApproval=async function(){
@@ -394,15 +410,11 @@
   const btn=el('import-action-btn');if(btn)btn.disabled=true;
   setActiveWorkIds(selected.map(work=>work.workId));
   try{
-   const records=await load();
-   for(const work of selected){
-    const existing=records.find(r=>r.requesterId===requesterId&&r.sourceId===sourceId&&r.workId===work.workId&&['pending','approved'].includes(r.status));
-    if(!existing)await api('','POST',{requester_id:requesterId,source_person_id:sourceId,work_id:work.workId});
-   }
+   const result=await api('/bulk','POST',{requester_id:requesterId,source_person_id:sourceId,work_ids:selected.map(w=>w.workId)});
    updateInboxBadge();
    importState.step=2;importState.approved=false;renderImportFlow();
    await refreshGate();
-   message(selected.length+'개 Work만 요청했습니다. '+importState.person+'님이 승인하면 선택한 업무만 표시됩니다.');
+   message(result.created+'건 요청 완료'+(result.existing?' · 기존 요청 '+result.existing+'건 제외':'')+'. '+importState.person+'님의 승인을 기다립니다.');
   }catch(e){message(e.message)}
   finally{if(btn)btn.disabled=false}
  };
