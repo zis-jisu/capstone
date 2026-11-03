@@ -650,7 +650,9 @@ class DemoHandoverRequest(BaseModel):
 
 class DemoHandoverDecision(BaseModel):
     actor_id: str = Field(min_length=1, max_length=40)
-    status: str = Field(pattern='^(approved|rejected)(method='GET', params=None, payload=None):
+    status: str = Field(pattern='^(approved|rejected)$')
+
+def _handover_db(method='GET', params=None, payload=None):
     store = SupabaseStore()
     url = store.url + '/rest/v1/handover_requests'
     if params:
