@@ -4,6 +4,17 @@
   let history = [], historyScope = '', busy = false, session = 0;
   const byId = id => document.getElementById(id);
   const originalOpen = window.openAsk;
+  function contactContext(selected, taskId) {
+    // Optional merger hook. Display context only; it never authorizes DB access.
+    if(typeof window.linkingAgentContactContext==='function')return window.linkingAgentContactContext(taskId,selected);
+    const work=typeof PROJECTS!=='undefined' ? PROJECTS.find(w=>(w.tasks||[]).includes(taskId)) : null;
+    const sources=window.linkingApprovedWorkSources||{};
+    const known=!!work&&Object.prototype.hasOwnProperty.call(sources,work.id)&&Array.isArray(sources[work.id]);
+    return {current_person_id:byId('sidebar-user-id')?.textContent?.trim()||'',
+      current_person_name:byId('sidebar-user-name')?.textContent?.trim()||'',absence_known:known,
+      absent_people:known?sources[work.id].map(name=>({name})):[],
+      candidates:(selected.roleAssignments||[]).map(p=>({person_id:p.personId||'',name:p.name,role:p.role}))};
+  }
   function textBlock(node, text) {
     // Small safe Markdown subset: bold, line breaks. Never interpret model/raw HTML.
     node.replaceChildren();
@@ -59,11 +70,12 @@
     const requestSession=session;
     try {
       const c=await config();byId('agent-data-status').textContent=modeLabel(c);
-      const scope=c.mode+':'+taskId+':'+(window.linkingLocalTestPersonId||'session');
+      const contacts=contactContext(selected,taskId);
+      const scope=c.mode+':'+taskId+':'+(window.linkingLocalTestPersonId||'session')+':'+JSON.stringify(contacts);
       if(historyScope!==scope){history=[];historyScope=scope;}
       if(c.db_enabled&&!/^TASK-[A-Za-z0-9_-]+$/.test(taskId))throw Error('이 업무는 아직 DB에 저장되지 않았습니다. 저장된 업무를 선택해 주세요.');
       const payload={question,task_id:taskId,history:history.slice(-6)};
-      if(!c.db_enabled)payload.tasks=agentTaskContext();
+      if(!c.db_enabled){payload.tasks=agentTaskContext();payload.contact_context=contacts;}
       const headers={'Content-Type':'application/json'};
       if(c.mode==='local_db_export') {headers['X-Preview-Token']=c.csrf;payload.preview_person_id=window.linkingLocalTestPersonId||'U0C20G9MRML';}
       const response=await fetch(c.endpoint,{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(payload)});
@@ -78,5 +90,5 @@
     }catch(e){answer.textContent='오류: '+e.message;source.textContent='연결 실패 · 답변을 생성하지 못했습니다.';}
     finally{busy=false;input.disabled=false;button.disabled=false;box.scrollTop=box.scrollHeight;if(!byId('ask-modal').classList.contains('hidden'))input.focus();}
   };
-  window.linkingAgentUI={textBlock,appendSources,modeLabel};
+  window.linkingAgentUI={textBlock,appendSources,modeLabel,contactContext};
 })();
