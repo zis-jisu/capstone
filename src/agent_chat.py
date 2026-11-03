@@ -9,6 +9,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from src.luna_api import MODEL, call_text
+from src.agent_contacts import ContactContext, contact_answer, contact_question
 
 router = APIRouter()
 
@@ -65,6 +66,7 @@ class ChatRequest(BaseModel):
     task_id: str | None = Field(default=None, max_length=120)
     tasks: list[AgentTask] = Field(default_factory=list, max_length=100)
     history: list[ChatMessage] = Field(default_factory=list, max_length=10)
+    contact_context: ContactContext | None = None
 
 
 def _basic_credentials(authorization: str) -> tuple[str, str] | None:
@@ -115,6 +117,11 @@ def ask_agent(req: ChatRequest, authorization: str | None = Header(default=None)
     selected = next((task for task in tasks if task.task_id == req.task_id), None)
     if req.task_id and selected is None:
         raise HTTPException(400, "선택한 업무가 업무 데이터에 없습니다.")
+    if contact_question(req.question):
+        return {'answer': contact_answer(req.question, req.contact_context),
+                'mode': 'frontend_context', 'model': None, 'sources': [],
+                'slack_rag_connected': False, 'llm_called': False,
+                'answer_type': 'contact_recommendation'}
     if _work_only_question(req.question):
         return {
             "answer": WORK_LIMITATION,
