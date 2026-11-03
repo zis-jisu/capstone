@@ -650,7 +650,366 @@ class DemoHandoverRequest(BaseModel):
 
 class DemoHandoverDecision(BaseModel):
     actor_id: str = Field(min_length=1, max_length=40)
-    status: str = Field(pattern='^(approved|rejected)
+    status: str = Field(pattern='^(approved|rejected)(method='GET', params=None, payload=None):
+    store = SupabaseStore()
+    url = store.url + '/rest/v1/handover_requests'
+    if params:
+        url += '?' + urllib.parse.urlencode(params)
+    data = json.dumps(payload).encode('utf-8') if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        'apikey': store.key, 'Authorization': 'Bearer ' + store.key,
+        'Content-Type': 'application/json', 'Prefer': 'return=representation',
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            return json.loads(res.read() or b'[]')
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode('utf-8', errors='replace')[:1000]
+        logging.error('Handover Supabase HTTP %s (%s): %s', exc.code, method, detail)
+        if exc.code == 409:
+            raise HTTPException(409, '이미 처리 중이거나 등록된 요청입니다. 목록을 새로고침해 주세요.') from None
+        raise HTTPException(502, '인수인계 DB 요청에 실패했습니다. 관리자에게 서버 로그 확인을 요청해 주세요.') from None
+    except (urllib.error.URLError, TimeoutError) as exc:
+        logging.error('Handover Supabase connection error (%s): %s', method, exc)
+        raise HTTPException(504, '인수인계 DB 연결 시간이 초과됐습니다.') from None
+
+
+def _approved_handoff_source_ids(receiver_id):
+    """Return every cumulatively approved source for one receiver, once."""
+    approved = _handover_db(params={
+        'select': 'source_person_id',
+        'requester_id': 'eq.' + receiver_id,
+        'status': 'eq.approved',
+    })
+    return list(dict.fromkeys(
+        row['source_person_id'] for row in approved if row.get('source_person_id')
+    ))
+
+@app.get('/api/demo/auth/config')
+def demo_auth_config(_=Depends(demo_auth)):
+    return {'verified_mode': slack_login_enabled(), 'provider': 'slack'}
+
+@app.get('/api/demo/auth/slack/start')
+def slack_signin(_=Depends(demo_auth)):
+    return slack_begin()
+
+@app.get('/api/demo/auth/slack/callback')
+def slack_signin_callback(code: str, state: str, request: Request):
+    return slack_callback(code, state, request)
+
+@app.get('/api/demo/auth/me')
+def slack_me(_=Depends(demo_auth), identity=Depends(slack_actor)):
+    if not identity:
+        return {'authenticated': False, 'mode': 'demo'}
+    return {'authenticated': True, 'person_id': identity['person_id']}
+
+@app.get('/api/demo/auth/logout')
+def slack_signout(_=Depends(demo_auth)):
+    return slack_logout()
+
+@app.get('/api/demo/handover-catalog')
+def demo_handover_catalog(source_person_id: str, _=Depends(demo_auth), actor=Depends(slack_actor)):
+    # Request selection needs Work/Task titles before approval, never Event text or raw Slack.
+    from src.handover_catalog import handover_catalog, load_catalog_snapshot
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,90}', source_person_id):
+        raise HTTPException(422, 'Invalid handover source person')
+    snapshot = load_catalog_snapshot(_frontend_store(), SupabaseStore(), source_person_id, _overlay_original_work)
+    if source_person_id not in {p['person_id'] for p in snapshot['persons']}:
+        raise HTTPException(404, 'Unknown handover source person')
+    return {'source_person_id': source_person_id, 'works': handover_catalog(snapshot, source_person_id)}
+
+
+@app.get('/api/demo/handover-requests')
+def demo_handover_list(_=Depends(demo_auth), actor=Depends(slack_actor)):
+    rows = _handover_db(params={'select': '*', 'order': 'created_at.desc', 'limit': '100'})
+    if actor:
+        rows = [r for r in rows if actor['person_id'] in (r['requester_id'], r['source_person_id'])]
+    return {'requests': rows}
+
+@app.post('/api/demo/handover-requests', status_code=201)
+def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth), actor=Depends(slack_actor)):
+    if actor and actor['person_id'] != body.requester_id:
+        raise HTTPException(403, 'Cannot request on behalf of another person')
+    _handover_lookup_people_and_works(body.requester_id, body.source_person_id, [body.work_id])
+    rows = _handover_db('POST', payload={
+        'requester_id': body.requester_id,
+        'source_person_id': body.source_person_id,
+        'work_id': body.work_id,
+        'status': 'pending',
+    })
+    return {'request': rows[0]}
+
+
+@app.post('/api/demo/handover-requests/bulk', status_code=201)
+def demo_handover_bulk_create(body: DemoHandoverBulkRequest, _=Depends(demo_auth), actor=Depends(slack_actor)):
+    if actor and actor['person_id'] != body.requester_id:
+        raise HTTPException(403, 'Cannot request on behalf of another person')
+    ids = list(dict.fromkeys(body.work_ids))
+    _handover_lookup_people_and_works(body.requester_id, body.source_person_id, ids)
+    existing = _handover_db(params={
+        'select': 'work_id,status',
+        'requester_id': 'eq.' + body.requester_id,
+        'source_person_id': 'eq.' + body.source_person_id,
+        'work_id': 'in.(' + ','.join(ids) + ')',
+        'status': 'in.(pending,approved)',
+    })
+    already = {r['work_id'] for r in existing}
+    missing = [wid for wid in ids if wid not in already]
+    created = _handover_db('POST', payload=[{
+        'requester_id': body.requester_id, 'source_person_id': body.source_person_id,
+        'work_id': wid, 'status': 'pending'
+    } for wid in missing]) if missing else []
+    return {'created':len(created),'existing':len(already),'count':len(ids)}
+
+
+@app.post('/api/demo/handover-requests/bulk-decision')
+def demo_handover_bulk_decide(body: DemoHandoverBulkDecision, _=Depends(demo_auth), actor=Depends(slack_actor)):
+    from uuid import UUID
+    if actor and actor['person_id'] != body.actor_id:
+        raise HTTPException(403, 'Actor mismatch')
+    ids = list(dict.fromkeys(body.request_ids))
+    try:
+        for rid in ids: UUID(rid)
+    except ValueError:
+        raise HTTPException(422, 'Invalid request ID') from None
+    rows = _handover_db(params={
+        'select':'request_id,source_person_id,requester_id',
+        'request_id':'in.(' + ','.join(ids) + ')', 'status':'eq.pending',
+    })
+    if len(rows) != len(ids):
+        raise HTTPException(409, 'Some requests are no longer pending; refresh and retry')
+    if any(r['source_person_id'] != body.actor_id for r in rows):
+        raise HTTPException(403, 'Approval permission denied')
+    updated = _handover_db('PATCH', params={
+        'request_id':'in.(' + ','.join(ids) + ')', 'status':'eq.pending',
+        'source_person_id':'eq.' + body.actor_id,
+    }, payload={'status':'approved','approved_by':body.actor_id,
+                'verification_method':'demo_yubikey',
+                'approved_at':datetime.now(timezone.utc).isoformat()})
+    priority_errors = []
+    for receiver_id in set(r['requester_id'] for r in updated):
+        try:
+            ml_bridge.priorities(person_ids=_approved_handoff_source_ids(receiver_id),
+                                 receiver_person_id=receiver_id)
+        except Exception:
+            logging.exception('Bulk handover ML priority refresh failed for receiver %s', receiver_id)
+            priority_errors.append(receiver_id)
+    return {'approved':len(updated),'count':len(ids),
+            'priority_warning':bool(priority_errors)}
+
+@app.post('/api/demo/handover-requests/{request_id}/decision')
+def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(demo_auth), actor=Depends(slack_actor)):
+    from uuid import UUID
+    try:
+        UUID(request_id)
+    except ValueError:
+        raise HTTPException(422, 'Invalid request ID') from None
+    if actor and actor['person_id'] != body.actor_id:
+        raise HTTPException(403, 'Actor mismatch')
+    rows = _handover_db(params={
+        'select': '*', 'request_id': 'eq.' + request_id, 'status': 'eq.pending',
+    })
+    if not rows:
+        raise HTTPException(409, 'Request is not pending')
+    if body.actor_id != rows[0]['source_person_id']:
+        raise HTTPException(403, 'Approval permission denied')
+    patch = {'status': body.status, 'approved_by': body.actor_id,
+             'verification_method': 'demo_yubikey' if body.status == 'approved' else None,
+             'approved_at': datetime.now(timezone.utc).isoformat() if body.status == 'approved' else None}
+    updated = _handover_db('PATCH', params={
+        'request_id': 'eq.' + request_id, 'status': 'eq.pending',
+    }, payload=patch)
+    if not updated:
+        raise HTTPException(409, 'Request was already processed')
+    priority_result = None
+    priority_error = None
+    if body.status == 'approved':
+        try:
+            # Rank one combined queue over every person whose handover to this
+            # requester has already been approved. Repeated Works from the same
+            # source do not duplicate that source's Tasks.
+            receiver_id = updated[0]['requester_id']
+            source_ids = _approved_handoff_source_ids(receiver_id)
+            priority_result = ml_bridge.priorities(
+                person_ids=source_ids,
+                receiver_person_id=receiver_id,
+            )
+        except HTTPException as exc:
+            priority_error = str(exc.detail)
+        except Exception:
+            priority_error = 'ML priority response could not be processed'
+    return {'request': updated[0], 'priorities': priority_result,
+            'priority_error': priority_error}
+)
+
+class DemoHandoverBulkRequest(BaseModel):
+    requester_id: str = Field(min_length=1, max_length=40)
+    source_person_id: str = Field(min_length=1, max_length=40)
+    work_ids: list[str] = Field(min_length=1, max_length=50)
+
+class DemoHandoverBulkDecision(BaseModel):
+    actor_id: str = Field(min_length=1, max_length=40)
+    request_ids: list[str] = Field(min_length=1, max_length=100)
+
+def _handover_lookup_people_and_works(requester_id, source_person_id, work_ids):
+    """Validate handover IDs with narrow DB lookups rather than full graph snapshots."""
+    if requester_id == source_person_id:
+        raise HTTPException(422, 'Requester and source person must differ')
+    if any(not re.fullmatch(r'[A-Za-z0-9_-]{1,90}', wid) for wid in work_ids):
+        raise HTTPException(422, 'Invalid Work ID')
+    mock, original = _frontend_store(), SupabaseStore()
+    person_filter = 'in.(' + ','.join((requester_id, source_person_id)) + ')'
+    ids = {p['person_id'] for store in (mock, original)
+           for p in store.request('persons', params={'select':'person_id', 'person_id':person_filter})}
+    if not {requester_id, source_person_id}.issubset(ids):
+        raise HTTPException(404, 'Unknown handover person')
+    requested = set(work_ids)
+    work_filter = 'in.(' + ','.join(requested) + ')'
+    valid = {w['work_id'] for store in (mock, original)
+             for w in store.request('works', params={'select':'work_id', 'work_id':work_filter})}
+    if not requested.issubset(valid):
+        raise HTTPException(404, 'Unknown Work')
+
+
+def _handover_db(method='GET', params=None, payload=None):
+    store = SupabaseStore()
+    url = store.url + '/rest/v1/handover_requests'
+    if params:
+        url += '?' + urllib.parse.urlencode(params)
+    data = json.dumps(payload).encode('utf-8') if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        'apikey': store.key, 'Authorization': 'Bearer ' + store.key,
+        'Content-Type': 'application/json', 'Prefer': 'return=representation',
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            return json.loads(res.read() or b'[]')
+    except urllib.error.HTTPError as exc:
+        if exc.code == 409:
+            raise HTTPException(409, 'Already pending') from None
+        raise HTTPException(502, 'Handover storage error') from None
+    except urllib.error.URLError:
+        raise HTTPException(502, 'Handover database unreachable') from None
+
+
+def _approved_handoff_source_ids(receiver_id):
+    """Return every cumulatively approved source for one receiver, once."""
+    approved = _handover_db(params={
+        'select': 'source_person_id',
+        'requester_id': 'eq.' + receiver_id,
+        'status': 'eq.approved',
+    })
+    return list(dict.fromkeys(
+        row['source_person_id'] for row in approved if row.get('source_person_id')
+    ))
+
+@app.get('/api/demo/auth/config')
+def demo_auth_config(_=Depends(demo_auth)):
+    return {'verified_mode': slack_login_enabled(), 'provider': 'slack'}
+
+@app.get('/api/demo/auth/slack/start')
+def slack_signin(_=Depends(demo_auth)):
+    return slack_begin()
+
+@app.get('/api/demo/auth/slack/callback')
+def slack_signin_callback(code: str, state: str, request: Request):
+    return slack_callback(code, state, request)
+
+@app.get('/api/demo/auth/me')
+def slack_me(_=Depends(demo_auth), identity=Depends(slack_actor)):
+    if not identity:
+        return {'authenticated': False, 'mode': 'demo'}
+    return {'authenticated': True, 'person_id': identity['person_id']}
+
+@app.get('/api/demo/auth/logout')
+def slack_signout(_=Depends(demo_auth)):
+    return slack_logout()
+
+@app.get('/api/demo/handover-catalog')
+def demo_handover_catalog(source_person_id: str, _=Depends(demo_auth), actor=Depends(slack_actor)):
+    # Request selection needs Work/Task titles before approval, never Event text or raw Slack.
+    from src.handover_catalog import handover_catalog, load_catalog_snapshot
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,90}', source_person_id):
+        raise HTTPException(422, 'Invalid handover source person')
+    snapshot = load_catalog_snapshot(_frontend_store(), SupabaseStore(), source_person_id, _overlay_original_work)
+    if source_person_id not in {p['person_id'] for p in snapshot['persons']}:
+        raise HTTPException(404, 'Unknown handover source person')
+    return {'source_person_id': source_person_id, 'works': handover_catalog(snapshot, source_person_id)}
+
+
+@app.get('/api/demo/handover-requests')
+def demo_handover_list(_=Depends(demo_auth), actor=Depends(slack_actor)):
+    rows = _handover_db(params={'select': '*', 'order': 'created_at.desc', 'limit': '100'})
+    if actor:
+        rows = [r for r in rows if actor['person_id'] in (r['requester_id'], r['source_person_id'])]
+    return {'requests': rows}
+
+@app.post('/api/demo/handover-requests', status_code=201)
+def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth), actor=Depends(slack_actor)):
+    if actor and actor['person_id'] != body.requester_id:
+        raise HTTPException(403, 'Cannot request on behalf of another person')
+    snapshot = _hybrid_frontend_snapshot()
+    person_ids = {person['person_id'] for person in snapshot['persons']}
+    work_ids = {work['work_id'] for work in snapshot['works']}
+    if body.requester_id not in person_ids or body.source_person_id not in person_ids:
+        raise HTTPException(404, 'Unknown handover person')
+    if body.work_id not in work_ids:
+        raise HTTPException(404, 'Unknown Work')
+    if body.requester_id == body.source_person_id:
+        raise HTTPException(422, 'Requester and source person must differ')
+    rows = _handover_db('POST', payload={
+        'requester_id': body.requester_id,
+        'source_person_id': body.source_person_id,
+        'work_id': body.work_id,
+        'status': 'pending',
+    })
+    return {'request': rows[0]}
+
+@app.post('/api/demo/handover-requests/{request_id}/decision')
+def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(demo_auth), actor=Depends(slack_actor)):
+    from uuid import UUID
+    try:
+        UUID(request_id)
+    except ValueError:
+        raise HTTPException(422, 'Invalid request ID') from None
+    if actor and actor['person_id'] != body.actor_id:
+        raise HTTPException(403, 'Actor mismatch')
+    rows = _handover_db(params={
+        'select': '*', 'request_id': 'eq.' + request_id, 'status': 'eq.pending',
+    })
+    if not rows:
+        raise HTTPException(409, 'Request is not pending')
+    if body.actor_id != rows[0]['source_person_id']:
+        raise HTTPException(403, 'Approval permission denied')
+    patch = {'status': body.status, 'approved_by': body.actor_id,
+             'verification_method': 'demo_yubikey' if body.status == 'approved' else None,
+             'approved_at': datetime.now(timezone.utc).isoformat() if body.status == 'approved' else None}
+    updated = _handover_db('PATCH', params={
+        'request_id': 'eq.' + request_id, 'status': 'eq.pending',
+    }, payload=patch)
+    if not updated:
+        raise HTTPException(409, 'Request was already processed')
+    priority_result = None
+    priority_error = None
+    if body.status == 'approved':
+        try:
+            # Rank one combined queue over every person whose handover to this
+            # requester has already been approved. Repeated Works from the same
+            # source do not duplicate that source's Tasks.
+            receiver_id = updated[0]['requester_id']
+            source_ids = _approved_handoff_source_ids(receiver_id)
+            priority_result = ml_bridge.priorities(
+                person_ids=source_ids,
+                receiver_person_id=receiver_id,
+            )
+        except HTTPException as exc:
+            priority_error = str(exc.detail)
+        except Exception:
+            priority_error = 'ML priority response could not be processed'
+    return {'request': updated[0], 'priorities': priority_result,
+            'priority_error': priority_error}
+)
+
 def _handover_db(method='GET', params=None, payload=None):
     store = SupabaseStore()
     url = store.url + '/rest/v1/handover_requests'
