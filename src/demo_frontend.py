@@ -652,6 +652,15 @@ class DemoHandoverDecision(BaseModel):
     actor_id: str = Field(min_length=1, max_length=40)
     status: str = Field(pattern='^(approved|rejected)$')
 
+class DemoHandoverBulkRequest(BaseModel):
+    requester_id: str = Field(min_length=1, max_length=40)
+    source_person_id: str = Field(min_length=1, max_length=40)
+    work_ids: list[str] = Field(min_length=1, max_length=50)
+
+class DemoHandoverBulkDecision(BaseModel):
+    actor_id: str = Field(min_length=1, max_length=40)
+    request_ids: list[str] = Field(min_length=1, max_length=100)
+
 def _handover_db(method='GET', params=None, payload=None):
     store = SupabaseStore()
     url = store.url + '/rest/v1/handover_requests'
@@ -842,15 +851,6 @@ def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(
             priority_error = 'ML priority response could not be processed'
     return {'request': updated[0], 'priorities': priority_result,
             'priority_error': priority_error}
-
-class DemoHandoverBulkRequest(BaseModel):
-    requester_id: str = Field(min_length=1, max_length=40)
-    source_person_id: str = Field(min_length=1, max_length=40)
-    work_ids: list[str] = Field(min_length=1, max_length=50)
-
-class DemoHandoverBulkDecision(BaseModel):
-    actor_id: str = Field(min_length=1, max_length=40)
-    request_ids: list[str] = Field(min_length=1, max_length=100)
 
 def _handover_lookup_people_and_works(requester_id, source_person_id, work_ids):
     """Validate handover IDs with narrow DB lookups rather than full graph snapshots."""
