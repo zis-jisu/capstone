@@ -87,7 +87,7 @@
       const depTitles = deps.filter(e => e.source_id === id).map(e => taskMap.get(e.target_id)?.title).filter(Boolean);
       const pendingDeps = pendingDependencyTitles(id, deps, taskMap);
       const latestPrerequisite = latestEventPrerequisite(evs);
-      const caution = pendingDeps.length ? '미완료 선행 업무의 완료 여부를 확인하세요.' : '현재 미완료 선행 업무 없음';
+      const caution = pendingDeps.length ? '후속 단계 선행 업무: ' + pendingDeps.join(' · ') : '별도 주의사항 없음';
       const explicitBlocker=String(t.blocker_reason||t.blocked_reason||'').trim();
       const rawDue=t.deadline_at||t.due_at;
       const preciseDue=rawDue && !Number.isNaN(Date.parse(rawDue)) ? new Date(rawDue).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}) : null;
@@ -96,7 +96,7 @@
       TASKS[id] = {
         name: html(t.title), sourceName:String(t.title || ''), status: html(statusText(t.status)), risk:null, deadline:html(deadline), deadlineAt:rawDue||null, updated:Number(recent),
         type: ownerIds.length > 1 || collaboratorIds.length > 0 ? 'collab':'solo', owner:html(owners[0] || '담당자 미확인'),
-        contacts, people: collaborators.map(html), roleAssignments, next:html(next), after:[], blocker:html(pendingDeps.join(' · ') || explicitBlocker || '명시된 차단 사유 없음'),
+        contacts, people: collaborators.map(html), roleAssignments, next:html(next), after:[], blocker:html(explicitBlocker || '현재 확인된 차단 사유 없음'),
         explicitBlocker:html(explicitBlocker), latestPrerequisite:html(latestPrerequisite || ''),
         caution:html(caution), history:evs.map(e => html(`${authorForEvent(e)} · ${e.action || e.subject || e.evidence}`)),
         notes:notesForEvents(evs),

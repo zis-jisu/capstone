@@ -15,6 +15,7 @@ const tasks = new Map([
 ]);
 assert.deepEqual(Array.from(pending('TASK-00080', edges, tasks)), ['국내용 원고 제목·CTA 확정']);
 assert.doesNotMatch(code, /blocker:html\(explicitBlocker\|\|prereqs\[0\]/);
+assert.doesNotMatch(code, /blocker:html\(pendingDeps\.join/);
 const latestLine = code.split('\n').find(line => line.includes('const latestEventPrerequisite = '));
 const latest = vm.runInNewContext(latestLine + '\nlatestEventPrerequisite', {});
 assert.equal(latest([
