@@ -638,6 +638,14 @@ function renderRelatedContacts(t){
   return '<section class="rounded-2xl border border-[#E5E8EB] bg-white p-4"><div class="flex flex-wrap items-center gap-2"><h4 class="text-[14px] font-bold">'+escSvg(person.name||'이름 미등록')+'</h4><span class="rounded-lg bg-[#F2F4F6] px-2 py-1 text-[11px] text-[#6B7684]">'+escSvg(person.team||'부서 미등록')+'</span></div><dl class="mt-3 grid gap-3 sm:grid-cols-2 text-[12px]"><div><dt class="mb-1 text-[#8B95A1]">전화번호</dt><dd>'+phoneValue+'</dd></div><div><dt class="mb-1 text-[#8B95A1]">이메일</dt><dd>'+emailValue+'</dd></div></dl></section>';
  }).join('')+'</div>';
 }
+function renderEventNotes(t){
+ const notes=Array.isArray(t.notes)?t.notes:[];
+ if(!notes.length)return '<div class="rounded-2xl bg-[#F8F9FA] p-6 text-center text-[13px] text-[#8B95A1]">이 업무에 등록된 유의사항이 없습니다.</div>';
+ return '<div class="space-y-3">'+notes.map(note=>{
+  const time=Number(note.slackTs)?new Date(Number(note.slackTs)*1000).toLocaleString('ko-KR'):'';
+  return '<section class="rounded-2xl border border-[#E5E8EB] bg-white p-4"><div class="text-[11px] text-[#8B95A1]">'+escSvg(time)+(note.action?' · '+escSvg(note.action):'')+'</div><p class="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-[#333D4B]">'+escSvg(note.text)+'</p></section>';
+ }).join('')+'</div>';
+}
 function renderDetail(){
  const t=currentTask();
  const el=document.getElementById('task-detail');
@@ -650,7 +658,8 @@ function renderDetail(){
    {id:'timeline',label:'진행 타임라인',icon:'timeline'},
    {id:'files',label:'관련 자료',icon:'folder_open'},
    {id:'people',label:'업무 관계',icon:'hub'},
-   {id:'contacts',label:'관련자 연락처',icon:'contact_phone'}
+   {id:'contacts',label:'관련자 연락처',icon:'contact_phone'},
+   {id:'notes',label:'유의사항',icon:'sticky_note_2'}
  ];
  const tabContent={
    timeline:`<div class="detail-panel-scroll pr-1">${renderTimeline(t)}</div>`,
@@ -662,7 +671,8 @@ function renderDetail(){
        <button onclick="openNetwork()" class="h-9 px-3.5 shrink-0 rounded-xl border border-[#D9E9FF] bg-[#F2F7FF] text-[#1B64DA] text-[11px] font-bold">전체 조직도</button>
      </div>
    </div>`,
-   contacts:`<div class="detail-panel-scroll pr-1">${renderRelatedContacts(t)}</div>`
+   contacts:`<div class="detail-panel-scroll pr-1">${renderRelatedContacts(t)}</div>`,
+   notes:`<div class="detail-panel-scroll pr-1">${renderEventNotes(t)}</div>`
  };
  el.innerHTML=`<div class="bg-white rounded-[22px] border border-[#EEF0F3] overflow-hidden shadow-[0_1px_2px_rgba(0,0,0,.02)]">
    <div class="p-6 border-b border-[#F2F4F6]">

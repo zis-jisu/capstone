@@ -13,6 +13,9 @@
     .filter(task => task && !['completed', '완료'].includes(String(task.status || '').toLowerCase()))
     .map(task => task.title).filter(Boolean))];
   const latestEventPrerequisite = events => events.filter(event => event.prerequisite).at(-1)?.prerequisite || null;
+  const notesForEvents = events => events.filter(event => String(event.memo || '').trim()).map(event => ({
+    eventId:event.event_id, text:String(event.memo).trim(), action:event.action || event.subject || '', slackTs:event.slack_ts,
+  }));
 
   function attach(data) {
     const works = data.works || [], tasks = data.tasks || [], events = data.events || [];
@@ -96,6 +99,7 @@
         contacts, people: collaborators.map(html), roleAssignments, next:html(next), after:[], blocker:html(pendingDeps.join(' · ') || explicitBlocker || '명시된 차단 사유 없음'),
         explicitBlocker:html(explicitBlocker), latestPrerequisite:html(latestPrerequisite || ''),
         caution:html(caution), history:evs.map(e => html(`${authorForEvent(e)} · ${e.action || e.subject || e.evidence}`)),
+        notes:notesForEvents(evs),
         flow:[html(statusText(t.status)), html(next), '완료 확인'], depends:depTitles.map(html), approval:'원문 근거 참조',
       };
       SLACK_EVIDENCE[id] = evs.map(e => {
