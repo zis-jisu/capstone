@@ -98,7 +98,8 @@
         return {
           type:e.conversation_type === 'dm' ? 'dm':'channel', source:html(e.conversation_id || channel),
           time:html(e.slack_ts ? new Date(Number(e.slack_ts)*1000).toLocaleString('ko-KR') : ''), author:html(authorForEvent(e)), summary:html(e.action || e.subject || ''),
-          original:html(raw), channel, timestamp, allowed:!!message && e.conversation_type !== 'dm',
+          original:html(raw), channel, timestamp, eventId:e.event_id,
+          allowed:taskToWork.get(id)==='WORK-00020' && !!message && e.conversation_type !== 'dm',
         };
       });
       FILES[id] = [...new Map(evs.flatMap(e => (e.reference || '').split('\n').filter(v => /^https:\/\//.test(v)).map(url => [url,{name:'Slack 원문에 공유된 자료',location:url,icon:'link'}]))).values()];
@@ -519,9 +520,8 @@
     const e = SLACK_EVIDENCE[taskId]?.[i];
     if(!e) return;
     if(e.type==='dm' || !e.allowed) {toast('권한 또는 Slack 원문 연결 정보가 확인되지 않았어요.');return;}
-    const ts = (e.timestamp || '').replace('.', '');
-    if(!/^C[A-Z0-9]+$/.test(e.channel) || !/^\d{16}$/.test(ts)) {toast('Slack 메시지 링크가 확인되지 않았어요.');return;}
-    window.open(`https://app.slack.com/archives/${e.channel}/p${ts}`, '_blank', 'noopener,noreferrer');
+    if(!e.eventId) {toast('Slack 메시지 링크가 확인되지 않았어요.');return;}
+    window.open(`/api/demo/slack-permalink?event_id=${encodeURIComponent(e.eventId)}`, '_blank', 'noopener,noreferrer');
   };
 
   // Disable the mock YubiKey approval simulation: the backend demo uses HTTP Basic authentication.

@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 from fastapi import Depends, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from src.db import SupabaseStore, export_graph
@@ -242,6 +242,50 @@ def demo_data(work_ids: str = '', _=Depends(demo_auth), actor=Depends(slack_acto
             ORIGINAL_FRONTEND_WORK_ID: 'original',
         },
     }
+
+
+@app.get('/api/demo/slack-permalink', include_in_schema=False)
+def slack_permalink(event_id: str, _=Depends(demo_auth), actor=Depends(slack_actor)):
+    """Resolve an authorized event to Slack's own message permalink."""
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,90}', event_id):
+        raise HTTPException(422, 'Invalid event ID')
+    # Resolve against the original tables only; the UI's mock tables have no Slack originals.
+    if actor and actor['person_id'] != JISOO_ID:
+        grants = _handover_db(params={
+            'select': 'work_id', 'requester_id': 'eq.' + actor['person_id'],
+            'status': 'eq.approved', 'work_id': 'eq.' + ORIGINAL_FRONTEND_WORK_ID,
+        })
+        if not grants:
+            raise HTTPException(404, 'Slack original is unavailable')
+    store = SupabaseStore()
+    scoped, _ = _filter_work_data(store.snapshot(), [], {ORIGINAL_FRONTEND_WORK_ID})
+    event = next((row for row in scoped['events'] if row['event_id'] == event_id), None)
+    if not event:
+        raise HTTPException(404, 'Slack original is unavailable')
+    message_rows = store.request('slack_messages', params={
+        'select': 'message_id', 'message_id': 'eq.' + str(event.get('source_id', '')), 'limit': 1,
+    })
+    message = message_rows[0] if message_rows else None
+    if not message or event.get('conversation_type') == 'dm':
+        raise HTTPException(404, 'Slack original is unavailable')
+    source = str(message['message_id']).split(':', 1)
+    if len(source) != 2 or not re.fullmatch(r'[CG][A-Z0-9]+', source[0]) or not re.fullmatch(r'\d{10}\.\d{6}', source[1]):
+        raise HTTPException(404, 'Slack message ID is unavailable')
+    token = os.getenv('SLACK_TOKEN', '').strip()
+    if not token:
+        raise HTTPException(503, 'Slack permalink lookup is not configured')
+    query = urllib.parse.urlencode({'channel': source[0], 'message_ts': source[1]})
+    request = urllib.request.Request('https://slack.com/api/chat.getPermalink?' + query,
+                                     headers={'Authorization': 'Bearer ' + token})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            result = json.load(response)
+    except (urllib.error.URLError, ValueError):
+        raise HTTPException(502, 'Slack permalink lookup failed') from None
+    permalink = result.get('permalink') if result.get('ok') else None
+    if not isinstance(permalink, str) or not re.fullmatch(r'https://[A-Za-z0-9-]+\.slack\.com/archives/[CG][A-Z0-9]+/p\d+(?:\?.*)?', permalink):
+        raise HTTPException(404, 'Slack message does not exist or is inaccessible')
+    return RedirectResponse(permalink, status_code=302)
 
 def _filter_work_data(snapshot, messages, allowed_work_ids):
     """Keep only evidence attached to authorized Works, never all persons/events."""
