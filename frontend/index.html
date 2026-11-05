@@ -529,6 +529,7 @@ function renderOverview(t){
         <div><div class="text-[#8B95A1]">막힌 이유</div><div class="font-semibold mt-1">${t.blocker}</div></div>
         <div><div class="text-[#8B95A1]">검수·승인</div><div class="font-semibold mt-1">${t.approval}</div></div>
         <div class="sm:col-span-2"><div class="text-[#8B95A1]">주의사항</div><div class="font-semibold mt-1">${t.caution}</div></div>
+        ${t.latestPrerequisite?`<div class="sm:col-span-2"><div class="text-[#8B95A1]">최근 Event의 선행조건 · 원문 기록</div><div class="font-semibold mt-1">${t.latestPrerequisite}</div></div>`:''}
       </div>
     </details>
   </div>`;
@@ -911,6 +912,7 @@ function agentTaskPayload(taskId,t){
  return {task_id:String(taskId),name:String(t.sourceName||t.name||taskId),status:t.status||null,deadline:t.deadline||null,
   priority_score:Number.isFinite(score)?score:null,priority_rank:Number.isFinite(rank)&&rank>0?rank:null,owner:t.owner||null,
   next_action:t.next||t.next_action||null,blocker:t.blocker||null,caution:t.caution||null,
+  latest_event_prerequisite:t.latestPrerequisite||null,
   participants:participants.map(p=>typeof p==='string'?p:(p.name||p.person_id||'')).filter(Boolean),history:(t.history||[]).map(String)};
 }
 function agentTaskContext(){

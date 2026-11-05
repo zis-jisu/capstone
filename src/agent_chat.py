@@ -52,6 +52,7 @@ class AgentTask(BaseModel):
     next_action: str | None = Field(default=None, max_length=2000)
     blocker: str | None = Field(default=None, max_length=2000)
     caution: str | None = Field(default=None, max_length=2000)
+    latest_event_prerequisite: str | None = Field(default=None, max_length=2000)
     participants: list[str] = Field(default_factory=list, max_length=100)
     history: list[str] = Field(default_factory=list, max_length=100)
 
@@ -152,6 +153,8 @@ def ask_agent(req: ChatRequest, authorization: str | None = Header(default=None)
                 "Task와 Work를 함께 질문하면 Work 부분은 확인 불가로 구분하고 Task 부분만 답하라. "
                 "이전 대화보다 현재 context의 상태와 순위를 우선하라. null 점수와 순위는 미제공이며 0이 아니다. "
                 "priority_rank는 1이 가장 높고, priority_score는 값이 클수록 우선순위가 높다. "
+                "latest_event_prerequisite는 가장 최근 Event에 기록된 당시의 선행조건이며 현재 차단 사유로 단정하지 마라. "
+                "현재 막힌 이유는 blocker와 현재 상태를 기준으로 설명하라. "
                 "점수 산정 원인이 데이터에 없으면 추측하지 마라. Slack 원문이나 서버 DB를 조회한 것처럼 "
                 "말하지 말고, 근거가 부족하면 무엇이 부족한지 명확히 밝혀라."
             ),

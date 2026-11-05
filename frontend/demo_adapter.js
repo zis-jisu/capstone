@@ -7,6 +7,12 @@
   const statuses = { completed:'완료', in_progress:'진행 중', waiting:'대기', planned:'대기', delayed:'지연', blocked:'차단', pending:'대기' };
   const statusText = s => statuses[String(s || '').trim().toLowerCase()] || s || '미확인';
   const byId = (arr, key) => new Map(arr.map(x => [x[key], x]));
+  const pendingDependencyTitles = (taskId, edges, taskMap) => [...new Set(edges
+    .filter(edge => edge.source_id === taskId)
+    .map(edge => taskMap.get(edge.target_id))
+    .filter(task => task && !['completed', '완료'].includes(String(task.status || '').toLowerCase()))
+    .map(task => task.title).filter(Boolean))];
+  const latestEventPrerequisite = events => events.filter(event => event.prerequisite).at(-1)?.prerequisite || null;
 
   function attach(data) {
     const works = data.works || [], tasks = data.tasks || [], events = data.events || [];
@@ -75,9 +81,10 @@
       for(const e of evs)for(const key of ['speaker_id','slack_user_id','actor_id','recipient_id'])if(e[key])contactIds.add(e[key]);
       const contacts=[...contactIds].map(personId=>peopleMap.get(personId)).filter(Boolean).sort((a,b)=>String(a.name).localeCompare(String(b.name),'ko'));
       const next = t.next_action || (t.status === 'completed' ? '완료된 업무입니다.' : '다음 할 일 확인 필요');
-      const prereqs = [...new Set(evs.map(e => e.prerequisite).filter(Boolean))];
       const depTitles = deps.filter(e => e.source_id === id).map(e => taskMap.get(e.target_id)?.title).filter(Boolean);
-      const caution = prereqs.length ? prereqs.join(' · ') : 'Slack 근거에서 별도 선행조건이 확인되지 않았습니다.';
+      const pendingDeps = pendingDependencyTitles(id, deps, taskMap);
+      const latestPrerequisite = latestEventPrerequisite(evs);
+      const caution = pendingDeps.length ? '미완료 선행 업무의 완료 여부를 확인하세요.' : '현재 미완료 선행 업무 없음';
       const explicitBlocker=String(t.blocker_reason||t.blocked_reason||'').trim();
       const rawDue=t.deadline_at||t.due_at;
       const preciseDue=rawDue && !Number.isNaN(Date.parse(rawDue)) ? new Date(rawDue).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}) : null;
@@ -86,8 +93,8 @@
       TASKS[id] = {
         name: html(t.title), sourceName:String(t.title || ''), status: html(statusText(t.status)), risk:null, deadline:html(deadline), deadlineAt:rawDue||null, updated:Number(recent),
         type: ownerIds.length > 1 || collaboratorIds.length > 0 ? 'collab':'solo', owner:html(owners[0] || '담당자 미확인'),
-        contacts, people: collaborators.map(html), roleAssignments, next:html(next), after:[], blocker:html(explicitBlocker||prereqs[0] || '명시된 차단 사유 없음'),
-        prerequisiteTexts:prereqs.map(html), explicitBlocker:html(explicitBlocker),
+        contacts, people: collaborators.map(html), roleAssignments, next:html(next), after:[], blocker:html(pendingDeps.join(' · ') || explicitBlocker || '명시된 차단 사유 없음'),
+        explicitBlocker:html(explicitBlocker), latestPrerequisite:html(latestPrerequisite || ''),
         caution:html(caution), history:evs.map(e => html(`${authorForEvent(e)} · ${e.action || e.subject || e.evidence}`)),
         flow:[html(statusText(t.status)), html(next), '완료 확인'], depends:depTitles.map(html), approval:'원문 근거 참조',
       };
@@ -310,8 +317,7 @@
           return !related||related.status!=='완료';
         });
         const blocker=String(task.explicitBlocker||'').trim();
-        const prerequisites=task.prerequisiteTexts||[];
-        const reason=blocker?'차단 사유: '+blocker:outstanding.length?'선행 업무: '+outstanding.join(' · '):prerequisites.length?'선행 조건: '+prerequisites.join(' · '):'';
+        const reason=blocker?'차단 사유: '+blocker:outstanding.length?'선행 업무: '+outstanding.join(' · '):'';
         return '<button type="button" data-flow-task-id="'+esc(id)+'" aria-pressed="'+String(id===selectedTaskId)+'" class="w-full rounded-xl border px-4 py-3 text-left transition-colors '+(id===selectedTaskId?'border-[#5D6CFF] bg-[#F3F5FF]':'border-[#E8ECF1] bg-white hover:border-[#B0BEFF]')+'"><span class="flex items-center gap-3"><span class="shrink-0 inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-[11px] font-bold" style="background:'+st.bg+';color:'+st.fg+';border-color:'+st.fg+'40">'+esc(st.label)+'</span><span class="min-w-0 flex-1 text-[13px] font-semibold text-[#191F28]">'+esc(task.name)+'</span>'+(activeOrWaiting?'<span class="shrink-0 text-[11px] font-medium text-[#6B7684] whitespace-nowrap">'+deadlineLabel+'</span>':'')+'<span class="material-symbols-outlined shrink-0 text-[17px] text-[#8894A7]">chevron_right</span></span><span class="mt-2 flex items-center gap-1.5 pl-1 text-[11px] text-[#6B7684]"><span class="material-symbols-outlined text-[15px]">person</span>'+esc(ownerLabel)+'</span>'+(reason&&status(task)!=='done'?'<span class="mt-1 block pl-1 text-[11px] text-[#A35C00]">'+esc(reason)+'</span>':'')+'</button>';
       }).join('')||'<div class="p-3 text-[12px] text-[#8B95A1]">해당 유형의 Task가 없습니다.</div>';
       return '<div class="flex flex-wrap items-center justify-between gap-2"><div><p class="text-[11px] text-[#8B95A1]">선택한 Work · Task 목록</p><h3 class="mt-1 text-[17px] font-bold">'+esc(item.work.name)+'</h3></div><span class="text-[12px] text-[#6B7684]">완료 '+item.done+'/'+item.tasks.length+'</span></div>'+
