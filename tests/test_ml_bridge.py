@@ -9,6 +9,23 @@ from src import demo_frontend
 
 
 class MlBridgePriorityTests(unittest.TestCase):
+    def test_private_railway_ml_endpoint_is_allowed(self):
+        with patch.dict("os.environ", {
+            "MODEL_API_URL": "http://capstone.railway.internal:8080",
+            "MODEL_API_KEY": "test-key",
+        }):
+            self.assertTrue(ml_bridge.configuration_status()["configured"])
+            self.assertEqual(ml_bridge._settings()[0], "http://capstone.railway.internal:8080")
+
+    def test_external_http_ml_endpoint_is_rejected(self):
+        with patch.dict("os.environ", {
+            "MODEL_API_URL": "http://example.com",
+            "MODEL_API_KEY": "test-key",
+        }):
+            self.assertFalse(ml_bridge.configuration_status()["configured"])
+            with self.assertRaises(HTTPException):
+                ml_bridge._settings()
+
     def test_training_payload_selects_temporal_snapshot(self):
         response = io.BytesIO(b'{"status":"completed"}\n')
         with patch.object(ml_bridge, "_open", return_value=response) as opened:

@@ -34,9 +34,15 @@ def _base_url():
     return base
 
 
+def _allowed_base_url(base):
+    return base.startswith("https://") or (
+        base.startswith("http://") and base.split("://", 1)[1].split(":", 1)[0].endswith(".railway.internal")
+    )
+
+
 def configuration_status():
     return {
-        "configured": bool(os.getenv("MODEL_API_KEY", "").strip()) and _base_url().startswith("https://"),
+        "configured": bool(os.getenv("MODEL_API_KEY", "").strip()) and _allowed_base_url(_base_url()),
         "base_url": _base_url(),
     }
 
@@ -46,8 +52,8 @@ def _settings():
     if not key:
         raise HTTPException(503, "MODEL_API_KEY is not configured on LINK-ing Railway")
     base = _base_url()
-    if not base.startswith("https://"):
-        raise HTTPException(503, "MODEL_API_URL must use HTTPS")
+    if not _allowed_base_url(base):
+        raise HTTPException(503, "MODEL_API_URL must use HTTPS or Railway private networking")
     return base, key
 
 def _open(path, method="GET", payload=None, timeout=30):
