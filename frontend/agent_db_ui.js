@@ -50,6 +50,26 @@
     }
     card.append(details);
   }
+  function taskContactAnswer(question, task) {
+    const asksEmail = /이메일|메일\s*주소|\be-?mail\b/i.test(question);
+    const asksPhone = /(?:전화|휴대폰|핸드폰)\s*번호/.test(question);
+    const asksContact = /연락\s*(?:처|정보)/.test(question);
+    if (!asksEmail && !asksPhone && !asksContact) return null;
+    const contacts = Array.isArray(task.contacts) ? task.contacts : [];
+    const matches = contacts.filter(person => {
+      const name = String(person?.name || '').trim();
+      return name && question.includes(name);
+    });
+    if (matches.length !== 1) {
+      return '선택한 업무의 관련자 연락처에서 조회할 팀원 한 명의 이름을 입력해주세요.';
+    }
+    const person = matches[0];
+    const both = asksContact && !asksEmail && !asksPhone;
+    const lines = [String(person.name).trim()];
+    if (asksEmail || both) lines.push('이메일: ' + (String(person.email || '').trim() || '미등록'));
+    if (asksPhone || both) lines.push('전화번호: ' + (String(person.phone_number || '').trim() || '미등록'));
+    return lines.join('\n');
+  }
   window.openAsk = function() {
     session++; history=[];historyScope='';originalOpen();
     const status=byId('agent-data-status');status.textContent='업무 정보 연결 확인 중';
@@ -69,6 +89,12 @@
     card.append(label,answer,source);box.append(turn,card);busy=true;input.disabled=true;button.disabled=true;input.value='';
     const requestSession=session;
     try {
+      const contactAnswer = taskContactAnswer(question, selected === window.currentTask?.() ? selected : {});
+      if (contactAnswer !== null) {
+        answer.textContent = contactAnswer;
+        source.textContent = '선택한 업무의 관련자 연락처';
+        return;
+      }
       const c=await config();byId('agent-data-status').textContent=modeLabel(c);
       const contacts=contactContext(selected,taskId);
       const scope=c.mode+':'+taskId+':'+(window.linkingLocalTestPersonId||'session')+':'+JSON.stringify(contacts);
