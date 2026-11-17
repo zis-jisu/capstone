@@ -81,7 +81,7 @@
       const response=await fetch(c.endpoint,{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(payload)});
       const result=await response.json();
       if(!response.ok){const friendly={401:'Slack 로그인이 필요합니다. 로그인 후 다시 질문해 주세요.',403:'이 업무의 원문을 조회할 권한이 없습니다.',503:'AI Bot 연결 설정이 준비되지 않았습니다.'};throw Error(friendly[response.status]||(typeof result.detail==='string'?result.detail:result.error)||'질문 처리에 실패했습니다.');}
-      if(!result.answer)throw Error('Agent 응답이 비어 있습니다.');
+      if(!result.answer)throw Error('AI Bot 응답이 비어 있습니다.');
       textBlock(answer,result.answer);
       source.textContent=(result.mode==='local_db_export'?'로컬 DB 복사본 · ':result.mode==='db_slack_task'?'DB 조회 · ':'화면 업무 정보 · ')+(result.llm_called===false?'AI 생성 없이 안내':'AI 답변');
       appendSources(card,result);
