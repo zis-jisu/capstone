@@ -26,7 +26,7 @@
   }
   async function config() {
     const response = await fetch('/api/chat/config', {credentials:'same-origin', cache:'no-store'});
-    if (!response.ok) throw new Error('업무 Agent 연결 설정을 확인할 수 없습니다. 로그인 상태를 확인해 주세요.');
+    if (!response.ok) throw new Error('AI Bot 연결 설정을 확인할 수 없습니다. 로그인 상태를 확인해 주세요.');
     return response.json();
   }
   function modeLabel(c) {
@@ -63,7 +63,7 @@
     const box=byId('chat-box'),turn=document.createElement('div'),card=document.createElement('div');
     turn.className='mt-4 text-[#191F28] font-medium';turn.textContent='Q. '+question;
     card.className='mt-2 rounded-2xl bg-white border border-[#EEF0F3] p-4';
-    const label=document.createElement('div');label.className='text-[11px] font-bold text-[#3182F6]';label.textContent='업무 Agent · '+(selected.sourceName||selected.name||taskId);
+    const label=document.createElement('div');label.className='text-[11px] font-bold text-[#3182F6]';label.textContent='AI Bot · '+(selected.sourceName||selected.name||taskId);
     const answer=document.createElement('div');answer.className='mt-2 text-[13px] whitespace-pre-wrap break-words';answer.textContent='근거를 확인하고 답변을 생성하고 있습니다…';
     const source=document.createElement('div');source.className='mt-3 text-[11px] text-[#8B95A1]';
     card.append(label,answer,source);box.append(turn,card);busy=true;input.disabled=true;button.disabled=true;input.value='';
@@ -80,7 +80,7 @@
       if(c.mode==='local_db_export') {headers['X-Preview-Token']=c.csrf;payload.preview_person_id=window.linkingLocalTestPersonId||'U0C20G9MRML';}
       const response=await fetch(c.endpoint,{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(payload)});
       const result=await response.json();
-      if(!response.ok){const friendly={401:'Slack 로그인이 필요합니다. 로그인 후 다시 질문해 주세요.',403:'이 업무의 원문을 조회할 권한이 없습니다.',503:'업무 Agent 연결 설정이 준비되지 않았습니다.'};throw Error(friendly[response.status]||(typeof result.detail==='string'?result.detail:result.error)||'질문 처리에 실패했습니다.');}
+      if(!response.ok){const friendly={401:'Slack 로그인이 필요합니다. 로그인 후 다시 질문해 주세요.',403:'이 업무의 원문을 조회할 권한이 없습니다.',503:'AI Bot 연결 설정이 준비되지 않았습니다.'};throw Error(friendly[response.status]||(typeof result.detail==='string'?result.detail:result.error)||'질문 처리에 실패했습니다.');}
       if(!result.answer)throw Error('Agent 응답이 비어 있습니다.');
       textBlock(answer,result.answer);
       source.textContent=(result.mode==='local_db_export'?'로컬 DB 복사본 · ':result.mode==='db_slack_task'?'DB 조회 · ':'화면 업무 정보 · ')+(result.llm_called===false?'AI 생성 없이 안내':'AI 답변');
