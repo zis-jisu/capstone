@@ -95,7 +95,7 @@
     if(currentUserRole!=='admin'||!token)return;
     const button=$('admin-sync-button'),output=$('admin-sync-result');
     const days=Number($('admin-sync-days')?.value||90);
-    window.lastWork20Sync=null;button.disabled=true;output.textContent=`WORK-00020 · 최근 ${days}일 Slack 메시지 수집 시작…`;
+    window.lastWork20Sync=null;button.disabled=true;output.textContent=`실시간 Slack 연동 · 최근 ${days}일 신규 메시지 수집 시작…`;
     try {
       const response=await fetch('/api/demo/slack-link',{method:'POST',credentials:'same-origin',headers:{'X-Admin-Token':token,'Content-Type':'application/json'},body:JSON.stringify({work_id:'WORK-00020',days})});
       if(!response.ok){
@@ -104,7 +104,7 @@
         throw new Error(detail||('학습 시작 실패 (HTTP '+response.status+')'));
       }
       if(!response.body)throw new Error('학습 진행 응답이 없습니다');
-      const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',completed=false;
+      const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',completed=false,racing=null;
       while(true){
         const next=await reader.read();if(next.done)break;
         buffer+=decoder.decode(next.value,{stream:true});
@@ -113,7 +113,8 @@
           if(!line.trim())continue;
           const event=JSON.parse(line);
           if(event.sync)window.lastWork20Sync=event.sync;
-          if(event.status==='failed'){const stages={database:'DB 조회',collect:'Slack 수집',extract:'업무 추출·저장',graph:'그래프 검증',training:'ML 학습'};throw new Error((event.sync?.saved?'Slack 동기화 완료 · ':'')+(stages[event.stage]?stages[event.stage]+' 단계 · ':'')+(event.error||'연동 실패'));}
+          if(event.racing)racing=event.racing;
+          if(event.status==='failed'){const stages={database:'DB 조회',collect:'Slack 수집',extract:'업무 추출·저장',racing:'레이싱 채널 수집·Event 저장',graph:'그래프 검증',training:'ML 학습'};throw new Error((event.sync?.saved?'Slack 동기화 완료 · ':'')+(stages[event.stage]?stages[event.stage]+' 단계 · ':'')+(event.error||'연동 실패'));}
           if(event.status==='completed')completed=true;
           if(event.status==='running'&&event.stage!=='heartbeat')output.textContent=event.message||(event.stage==='training'?`ML 모델 학습 중 · ${event.progress_percent||0}%`:'WORK-00020 처리 중…');
         }
@@ -121,7 +122,7 @@
       if(buffer.trim()){const last=JSON.parse(buffer);if(last.status==='completed')completed=true;if(last.status==='failed')throw Error(last.error||'학습 실패');}
       if(!completed)throw new Error('학습 완료 응답을 받지 못했습니다');
       const sync=window.lastWork20Sync;
-      output.textContent=`WORK-00020 Slack 동기화 및 ML 학습 완료 · 메시지 ${sync?.messages||0}건 / 변경 ${sync?.changed_messages||0}건`;
+      output.textContent=`실시간 Slack 동기화 및 ML 학습 완료 · 메시지 ${sync?.messages||0}건 / 변경 ${sync?.changed_messages||0}건${racing?' · 레이싱 채널 '+racing.messages+'건 / 신규·변경 '+racing.changed_messages+'건 / Event '+racing.events+'건':''}`;
       if(typeof window.reloadDemoData==='function')await window.reloadDemoData();
       if(window.refreshMlTrainingStatus)await window.refreshMlTrainingStatus();
     }catch(err){output.textContent='연동 실패 · '+err.message;}
