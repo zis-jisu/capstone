@@ -425,6 +425,17 @@ class WorkSyncRequest(BaseModel):
 _work_sync_task = None
 
 
+@app.post('/api/admin/racing-sync')
+async def admin_racing_sync(days: int = 90, _=Depends(admin_auth)):
+    """On-demand racing-channel Slack -> raw messages + Events, isolated from Work ML."""
+    if not 1 <= days <= 90:
+        raise HTTPException(422, '조회 기간은 1~90일이어야 합니다.')
+    from src.racing_sync import sync_racing_events
+    raw = await asyncio.wait_for(_call_slack_mcp('collect_slack_racing_channel',
+                                 {'days': days}), timeout=300)
+    return await asyncio.to_thread(sync_racing_events, raw)
+
+
 @app.post('/api/demo/slack-link')
 async def demo_slack_link(body: WorkSyncRequest = WorkSyncRequest(), _=Depends(admin_auth)):
     """Admin-only on-demand MCP collection -> extraction/save -> graph check -> ML."""
@@ -457,17 +468,6 @@ async def demo_slack_link(body: WorkSyncRequest = WorkSyncRequest(), _=Depends(a
             saved = await asyncio.to_thread(apply_collection, store, before, scope, raw, threads)
             await queue.put({'status': 'running', 'stage': 'saved', 'sync': saved,
                              'message': f"WORK-00020 동기화 확인 · 메시지 {saved['messages']}건 / 변경 {saved['changed_messages']}건 · 그래프 검증 중"})
-            # Add racing-channel messages and Events without altering WORK-00020 graphs.
-            stage = 'racing'
-            await queue.put({'status': 'running', 'stage': 'racing',
-                             'message': '레이싱 행사 채널 신규 대화 수집 및 Event 저장 중'})
-            from src.racing_sync import sync_racing_events
-            racing_raw = await asyncio.wait_for(
-                _call_slack_mcp('collect_slack_racing_channel', {'days': body.days}),
-                timeout=300)
-            racing = await asyncio.to_thread(sync_racing_events, racing_raw, store)
-            await queue.put({'status': 'running', 'stage': 'racing_saved',
-                             'message': f"레이싱 행사 동기화 완료 · 메시지 {racing['messages']}건 / 변경 {racing['changed_messages']}건 / Event {racing['events']}건"})
             # Confirm the original-table RPC actually contains the synced Work before ML starts.
             stage = 'graph'
             from scripts.export_ml_rpc import fetch_graph
@@ -506,7 +506,7 @@ async def demo_slack_link(body: WorkSyncRequest = WorkSyncRequest(), _=Depends(a
             await queue.put({'status': 'completed', 'stage': 'completed', 'sync': saved,
                              'training_snapshot_key': training_snapshot_key,
                              'message': f'Slack 동기화 및 ML 학습 완료 · 학습 그래프 {training_snapshot_key}',
-                             'racing': racing})
+                             'racing': None})
         except Exception as exc:
             detail = sync_error_detail(exc, stage)
             kinds = ','.join(sorted({type(e).__name__ for e in exception_leaves(exc)}))
