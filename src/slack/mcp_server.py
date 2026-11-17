@@ -120,6 +120,84 @@ def collect_work_context(work_id: str, threads: list[dict], days: int = 90):
                          "matched_channels": sorted({channel for channel, _ in roots}), "warnings": []}}
 
 
+
+def collect_racing_channel(days: int = 90):
+    """Collect recent messages from one racing channel, including thread replies."""
+    import os
+    if not 1 <= days <= 90:
+        raise ValueError("Invalid lookback window")
+    configured = os.getenv("SLACK_RACING_CHANNEL_ID", "").strip()
+    channels = list_conversations()
+    matches = ([c for c in channels if c["id"] == configured] if configured else
+               [c for c in channels if ("레이싱" in c.get("name", "") or "racing" in c.get("name", "").lower())
+                and not c.get("is_im") and not c.get("is_mpim")])
+    if len(matches) != 1:
+        raise ValueError("Set SLACK_RACING_CHANNEL_ID to the racing event channel ID")
+    channel = matches[0]
+    if channel.get("is_member") is False:
+        raise ValueError("Slack app must be a member of the racing channel")
+    cid = channel["id"]
+    oldest = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+    messages, cursor, seen = {}, "", set()
+    for _ in range(50):
+        args = {"channel": cid, "oldest": str(oldest), "limit": 200}
+        if cursor:
+            args["cursor"] = cursor
+        page = _get("conversations.history", args)
+        for root in page.get("messages", []):
+            if root.get("user") and float(root["ts"]) >= oldest:
+                messages[root["ts"]] = (root, None)
+            if root.get("reply_count"):
+                reply_cursor, reply_seen = "", set()
+                for _ in range(50):
+                    p = {"channel": cid, "ts": root["ts"], "oldest": str(oldest), "limit": 200}
+                    if reply_cursor:
+                        p["cursor"] = reply_cursor
+                    replies = _get("conversations.replies", p)
+                    for reply in replies.get("messages", []):
+                        if reply.get("user") and float(reply["ts"]) >= oldest:
+                            messages[reply["ts"]] = (reply, None if reply["ts"] == root["ts"] else root["ts"])
+                    reply_cursor = replies.get("response_metadata", {}).get("next_cursor", "").strip()
+                    if not reply_cursor:
+                        if replies.get("has_more"):
+                            raise RuntimeError("Racing channel reply pagination incomplete")
+                        break
+                    if reply_cursor in reply_seen:
+                        raise RuntimeError("Racing channel reply cursor repeated")
+                    reply_seen.add(reply_cursor)
+                else:
+                    raise RuntimeError("Racing channel thread is too large")
+        cursor = page.get("response_metadata", {}).get("next_cursor", "").strip()
+        if not cursor:
+            if page.get("has_more"):
+                raise RuntimeError("Racing channel history pagination incomplete")
+            break
+        if cursor in seen:
+            raise RuntimeError("Racing channel history cursor repeated")
+        seen.add(cursor)
+    else:
+        raise RuntimeError("Racing channel history exceeds safety limit")
+    records = []
+    users = set()
+    for ts, (message, parent) in sorted(messages.items(), key=lambda p: float(p[0])):
+        user = message["user"]
+        users.add(user)
+        text = message.get("text", "")
+        users.update(re.findall(r"<@(U[A-Z0-9]+)(?:\\|[^>]+)?>", text))
+        records.append({"source_id": cid + ":" + ts, "conversation_id": cid,
+                        "conversation_type": "channel", "parent_ts": parent,
+                        "slack_ts": ts, "slack_author_id": user, "raw_text": text,
+                        "edited": message.get("edited")})
+    people = []
+    for uid in sorted(users):
+        user = _get("users.info", {"user": uid}).get("user", {})
+        profile = user.get("profile") or {}
+        people.append({"slack_id": uid, "name": user.get("real_name") or
+                       profile.get("real_name") or user.get("name") or uid})
+    return {"channel_id": cid, "channel_name": channel.get("name", cid), "people": people,
+            "records": records, "metadata": {"days": days, "oldest_ts": oldest}}
+
+
 def make_server():
     from mcp.server.fastmcp import FastMCP
     server = FastMCP("Slack Handover")
@@ -135,6 +213,11 @@ def make_server():
     def collect_slack_work_threads(work_id: str, threads: list[dict], days: int = 90) -> dict:
         """Collect only a Work's explicit evidence threads within the last 90 days."""
         return collect_work_context(work_id, threads, days)
+    @server.tool()
+    def collect_slack_racing_channel(days: int = 90) -> dict:
+        """Collect the configured racing event channel and its threads."""
+        return collect_racing_channel(days)
+
     return server
 
 if __name__ == "__main__":
