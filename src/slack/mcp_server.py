@@ -126,7 +126,7 @@ def collect_racing_channel(days: int = 90):
     import os
     if not 1 <= days <= 90:
         raise ValueError("Invalid lookback window")
-    configured = os.getenv("SLACK_RACING_CHANNEL_ID", "").strip()
+    configured = os.getenv("SLACK_RACING_CHANNEL_ID", "C0CJ641SLP5").strip()
     channels = list_conversations()
     matches = ([c for c in channels if c["id"] == configured] if configured else
                [c for c in channels if ("레이싱" in c.get("name", "") or "racing" in c.get("name", "").lower())
