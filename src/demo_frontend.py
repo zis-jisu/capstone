@@ -7,7 +7,7 @@ import logging
 import re
 from pathlib import Path
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
@@ -344,6 +344,11 @@ def admin_auth(
     return True
 
 
+def _is_verified_manager(identity):
+    allowed = {value.strip() for value in os.getenv('MANAGER_PERSON_IDS', '').split(',') if value.strip()}
+    return bool(identity and identity['person_id'] in allowed)
+
+
 def manager_auth(
     _=Depends(demo_auth), identity=Depends(slack_actor),
     x_demo_role: Annotated[str | None, Header()] = None,
@@ -351,12 +356,12 @@ def manager_auth(
     # The existing account picker is a Basic-auth-protected UI demonstration.
     # Never trust its role header when verified Slack login is enabled.
     if slack_login_enabled():
-        allowed = {value.strip() for value in os.getenv('MANAGER_PERSON_IDS', '').split(',') if value.strip()}
-        if not identity or identity['person_id'] not in allowed:
+        if not _is_verified_manager(identity):
             raise HTTPException(403, 'Manager login required')
-    elif x_demo_role != 'manager':
+        return identity['person_id']
+    if x_demo_role != 'manager':
         raise HTTPException(403, 'Manager demo role required')
-    return True
+    return MARKETING_MANAGER_DEMO_ID
 
 
 class AssignmentRequest(BaseModel):
@@ -380,14 +385,19 @@ def _db_assignments(method='GET', params=None, rows=None):
     data = None if rows is None else json.dumps(rows, ensure_ascii=False).encode('utf-8')
     req = urllib.request.Request(uri, data=data, method=method, headers={
         'apikey':store.key, 'Authorization':'Bearer '+store.key,
-        'Content-Type':'application/json', 'Prefer':'return=representation',
+        'Content-Type':'application/json',
+        'Prefer': ('resolution=ignore-duplicates,return=representation'
+                   if method == 'POST' else 'return=representation'),
     })
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             b=resp.read()
             return json.loads(b) if b else []
-    except urllib.error.HTTPError:
-        raise HTTPException(502, 'Failed to access assignment storage') from None
+    except urllib.error.HTTPError as exc:
+        logging.error('Assignment storage HTTP %s (%s)', exc.code, method)
+        raise HTTPException(502, '배정 내역을 저장하거나 조회하지 못했습니다.') from None
+    except (urllib.error.URLError, TimeoutError):
+        raise HTTPException(504, '배정 저장소 연결 시간이 초과됐습니다.') from None
 
 
 from src import ml_bridge
@@ -553,13 +563,34 @@ def validate_admin(_=Depends(admin_auth)):
     return {'ok':True}
 
 
+def _assignment_directory():
+    snapshot = _hybrid_frontend_snapshot()
+    return {
+        'persons': [{key: person[key] for key in ('person_id', 'name', 'team', 'team_name', 'department',
+                                                      'department_name', 'employee_id', 'employee_no', 'staff_id') if key in person}
+                    for person in snapshot['persons']],
+        'works': [{key: work.get(key) for key in ('work_id', 'title')} for work in snapshot['works']],
+        'tasks': [{key: task.get(key) for key in ('task_id', 'title', 'status')} for task in snapshot['tasks']],
+        'edges': [edge for edge in snapshot['edges'] if edge.get('relation') in ('OWNER', 'HAS_TASK')],
+    }
+
+
+@app.get('/api/admin/assignment-directory')
+def admin_assignment_directory(_=Depends(admin_auth)):
+    return _assignment_directory()
+
+
 @app.get('/api/admin/assignments')
 def list_assignments(_=Depends(admin_auth)):
     return {'assignments':_db_assignments(params={'select':'*','order':'assigned_at.desc','limit':'100'})}
 
 
 @app.post('/api/admin/assignments',status_code=201)
-def create_assignment(body:AssignmentRequest, _=Depends(admin_auth)):
+def create_assignment(body: AssignmentRequest, _=Depends(admin_auth)):
+    return _create_assignment(body, os.getenv('ADMIN_ACTOR_ID', '').strip() or 'DEMO-ADMIN')
+
+
+def _create_assignment(body: AssignmentRequest, actor: str):
     # A handover recipient must not be silently promoted to the original OWNER edge.
     snap=_hybrid_frontend_snapshot()
     tasks = {t['task_id']:t for t in snap['tasks']}
@@ -582,14 +613,14 @@ def create_assignment(body:AssignmentRequest, _=Depends(admin_auth)):
                          and e.get('relation') == 'HAS_TASK'}
         task_ids = [task_id for task_id in work_task_ids
                     if task_id in tasks
-                    and str(tasks[task_id].get('status','')).lower() != 'completed']
+                    and str(tasks[task_id].get('status', '')).strip().lower() not in ('completed', '완료')]
         if body.source_person_id:
             owned = {e['target_id'] for e in snap['edges']
                      if e.get('source_type') == 'Person'
                      and e.get('source_id') == body.source_person_id
                      and e.get('target_type') == 'Task'
                      and e.get('relation') == 'OWNER'}
-            if not owned.intersection(work_task_ids):
+            if task_ids and not owned.intersection(task_ids):
                 raise HTTPException(422,'Selected person is not an owner of this Work')
     else:
         if body.task_id not in tasks:
@@ -597,13 +628,20 @@ def create_assignment(body:AssignmentRequest, _=Depends(admin_auth)):
         task_ids = [body.task_id]
     if not task_ids:
         raise HTTPException(409,'This Work has no unfinished Tasks')
-    actor=os.getenv('ADMIN_ACTOR_ID','')
-    if actor not in {p['person_id'] for p in snap['persons']}:
-        raise HTTPException(503,'Configure ADMIN_ACTOR_ID as a valid person ID')
-    rows=_db_assignments(method='POST',rows=[
-        {'task_id':task_id,'assignee_id':body.assignee_id,'assigned_by':actor}
-        for task_id in sorted(task_ids)
+    task_ids = sorted(task_ids)
+    rows = _db_assignments('POST', params={'on_conflict': 'task_id,assignee_id'}, rows=[
+        {'task_id': task_id, 'assignee_id': body.assignee_id, 'assigned_by': actor}
+        for task_id in task_ids
     ])
+    if len(rows) != len(task_ids):
+        # A retry can include existing assignments. Keep their original audit fields.
+        rows = _db_assignments(params={
+            'task_id': 'in.(' + ','.join(json.dumps(task_id) for task_id in task_ids) + ')',
+            'assignee_id': 'eq.' + body.assignee_id,
+            'order': 'task_id.asc',
+        })
+    if len(rows) != len(task_ids):
+        raise HTTPException(502, '배정 저장 결과를 확인할 수 없습니다.')
     priority_result = None
     priority_error = None
     try:
@@ -615,7 +653,7 @@ def create_assignment(body:AssignmentRequest, _=Depends(admin_auth)):
     except Exception:
         priority_error = 'ML priority response could not be processed'
     return {'assignment':rows[0], 'assignments':rows, 'work_id':body.work_id,
-            'task_ids':sorted(task_ids), 'priorities':priority_result,
+            'task_ids':task_ids, 'priorities':priority_result,
             'priority_error':priority_error}
 
 
@@ -652,14 +690,19 @@ async def _collect_via_mcp(person_id, days=90):
     return await _call_slack_mcp('collect_slack_person_work', {'person_id': person_id, 'days': days})
 
 
+@app.get('/api/manager/assignment-directory')
+def manager_assignment_directory(_=Depends(manager_auth)):
+    return _assignment_directory()
+
+
 @app.get('/api/manager/assignments')
 def manager_assignments(_=Depends(manager_auth)):
     return list_assignments()
 
 
 @app.post('/api/manager/assignments', status_code=201)
-def manager_create_assignment(body: AssignmentRequest, _=Depends(manager_auth)):
-    return create_assignment(body)
+def manager_create_assignment(body: AssignmentRequest, actor=Depends(manager_auth)):
+    return _create_assignment(body, actor)
 
 
 @app.post('/api/admin/slack-collect')
@@ -768,7 +811,8 @@ def slack_signin_callback(code: str, state: str, request: Request):
 def slack_me(_=Depends(demo_auth), identity=Depends(slack_actor)):
     if not identity:
         return {'authenticated': False, 'mode': 'demo'}
-    return {'authenticated': True, 'person_id': identity['person_id']}
+    return {'authenticated': True, 'person_id': identity['person_id'],
+            'is_manager': _is_verified_manager(identity)}
 
 @app.get('/api/demo/auth/logout')
 def slack_signout(_=Depends(demo_auth)):
@@ -829,40 +873,42 @@ def demo_handover_bulk_create(body: DemoHandoverBulkRequest, _=Depends(demo_auth
     return {'created':len(created),'existing':len(already),'count':len(ids)}
 
 
-@app.post('/api/demo/handover-requests/bulk-decision')
-def demo_handover_bulk_decide(body: DemoHandoverBulkDecision, _=Depends(demo_auth), actor=Depends(slack_actor)):
-    from uuid import UUID
-    if actor and actor['person_id'] != body.actor_id:
-        raise HTTPException(403, 'Actor mismatch')
-    ids = list(dict.fromkeys(body.request_ids))
-    try:
-        for rid in ids: UUID(rid)
-    except ValueError:
-        raise HTTPException(422, 'Invalid request ID') from None
-    rows = _handover_db(params={
-        'select':'request_id,source_person_id,requester_id',
-        'request_id':'in.(' + ','.join(ids) + ')', 'status':'eq.pending',
-    })
-    if len(rows) != len(ids):
-        raise HTTPException(409, 'Some requests are no longer pending; refresh and retry')
-    if any(r['source_person_id'] != body.actor_id for r in rows):
-        raise HTTPException(403, 'Approval permission denied')
-    updated = _handover_db('PATCH', params={
-        'request_id':'in.(' + ','.join(ids) + ')', 'status':'eq.pending',
-        'source_person_id':'eq.' + body.actor_id,
-    }, payload={'status':'approved','approved_by':body.actor_id,
-                'verification_method':'demo_yubikey',
-                'approved_at':datetime.now(timezone.utc).isoformat()})
-    priority_errors = []
-    for receiver_id in set(r['requester_id'] for r in updated):
+def _refresh_bulk_handover_priorities(receiver_ids):
+    for receiver_id in receiver_ids:
         try:
             ml_bridge.priorities(person_ids=_approved_handoff_source_ids(receiver_id),
                                  receiver_person_id=receiver_id)
         except Exception:
             logging.exception('Bulk handover ML priority refresh failed for receiver %s', receiver_id)
-            priority_errors.append(receiver_id)
-    return {'approved':len(updated),'count':len(ids),
-            'priority_warning':bool(priority_errors)}
+
+
+@app.post('/api/demo/handover-requests/bulk-decision')
+def demo_handover_bulk_decide(body: DemoHandoverBulkDecision, background: BackgroundTasks,
+                             _=Depends(demo_auth), actor=Depends(slack_actor)):
+    from uuid import UUID
+    if actor and actor['person_id'] != body.actor_id:
+        raise HTTPException(403, 'Actor mismatch')
+    try:
+        ids = list(dict.fromkeys(str(UUID(rid)) for rid in body.request_ids))
+    except ValueError:
+        raise HTTPException(422, 'Invalid request ID') from None
+    request_filter = 'in.(' + ','.join(ids) + ')'
+    rows = _handover_db(params={
+        'select': 'request_id,source_person_id', 'request_id': request_filter,
+    })
+    if any(row['source_person_id'] != body.actor_id for row in rows):
+        raise HTTPException(403, 'Approval permission denied')
+    updated = _handover_db('PATCH', params={
+        'request_id': request_filter, 'status': 'eq.pending',
+        'source_person_id': 'eq.' + body.actor_id,
+    }, payload={'status': 'approved', 'approved_by': body.actor_id,
+                'verification_method': 'demo_yubikey',
+                'approved_at': datetime.now(timezone.utc).isoformat()})
+    if updated:
+        background.add_task(_refresh_bulk_handover_priorities,
+                            list(dict.fromkeys(row['requester_id'] for row in updated)))
+    return {'approved': len(updated), 'count': len(ids), 'skipped': len(ids) - len(updated)}
+
 
 @app.post('/api/demo/handover-requests/{request_id}/decision')
 def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(demo_auth), actor=Depends(slack_actor)):
@@ -926,142 +972,3 @@ def _handover_lookup_people_and_works(requester_id, source_person_id, work_ids):
              for w in store.request('works', params={'select':'work_id', 'work_id':work_filter})}
     if not requested.issubset(valid):
         raise HTTPException(404, 'Unknown Work')
-
-
-def _handover_db(method='GET', params=None, payload=None):
-    store = SupabaseStore()
-    url = store.url + '/rest/v1/handover_requests'
-    if params:
-        url += '?' + urllib.parse.urlencode(params)
-    data = json.dumps(payload).encode('utf-8') if payload is not None else None
-    req = urllib.request.Request(url, data=data, method=method, headers={
-        'apikey': store.key, 'Authorization': 'Bearer ' + store.key,
-        'Content-Type': 'application/json', 'Prefer': 'return=representation',
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=30) as res:
-            return json.loads(res.read() or b'[]')
-    except urllib.error.HTTPError as exc:
-        if exc.code == 409:
-            raise HTTPException(409, 'Already pending') from None
-        raise HTTPException(502, 'Handover storage error') from None
-    except urllib.error.URLError:
-        raise HTTPException(502, 'Handover database unreachable') from None
-
-
-def _approved_handoff_source_ids(receiver_id):
-    """Return every cumulatively approved source for one receiver, once."""
-    approved = _handover_db(params={
-        'select': 'source_person_id',
-        'requester_id': 'eq.' + receiver_id,
-        'status': 'eq.approved',
-    })
-    return list(dict.fromkeys(
-        row['source_person_id'] for row in approved if row.get('source_person_id')
-    ))
-
-@app.get('/api/demo/auth/config')
-def demo_auth_config(_=Depends(demo_auth)):
-    return {'verified_mode': slack_login_enabled(), 'provider': 'slack'}
-
-@app.get('/api/demo/auth/slack/start')
-def slack_signin(_=Depends(demo_auth)):
-    return slack_begin()
-
-@app.get('/api/demo/auth/slack/callback')
-def slack_signin_callback(code: str, state: str, request: Request):
-    return slack_callback(code, state, request)
-
-@app.get('/api/demo/auth/me')
-def slack_me(_=Depends(demo_auth), identity=Depends(slack_actor)):
-    if not identity:
-        return {'authenticated': False, 'mode': 'demo'}
-    return {'authenticated': True, 'person_id': identity['person_id']}
-
-@app.get('/api/demo/auth/logout')
-def slack_signout(_=Depends(demo_auth)):
-    return slack_logout()
-
-@app.get('/api/demo/handover-catalog')
-def demo_handover_catalog(source_person_id: str, _=Depends(demo_auth), actor=Depends(slack_actor)):
-    # Request selection needs Work/Task titles before approval, never Event text or raw Slack.
-    from src.handover_catalog import handover_catalog, load_catalog_snapshot
-    if not re.fullmatch(r'[A-Za-z0-9_-]{1,90}', source_person_id):
-        raise HTTPException(422, 'Invalid handover source person')
-    snapshot = load_catalog_snapshot(_frontend_store(), SupabaseStore(), source_person_id, _overlay_original_work)
-    if source_person_id not in {p['person_id'] for p in snapshot['persons']}:
-        raise HTTPException(404, 'Unknown handover source person')
-    return {'source_person_id': source_person_id, 'works': handover_catalog(snapshot, source_person_id)}
-
-
-@app.get('/api/demo/handover-requests')
-def demo_handover_list(_=Depends(demo_auth), actor=Depends(slack_actor)):
-    rows = _handover_db(params={'select': '*', 'order': 'created_at.desc', 'limit': '100'})
-    if actor:
-        rows = [r for r in rows if actor['person_id'] in (r['requester_id'], r['source_person_id'])]
-    return {'requests': rows}
-
-@app.post('/api/demo/handover-requests', status_code=201)
-def demo_handover_create(body: DemoHandoverRequest, _=Depends(demo_auth), actor=Depends(slack_actor)):
-    if actor and actor['person_id'] != body.requester_id:
-        raise HTTPException(403, 'Cannot request on behalf of another person')
-    snapshot = _hybrid_frontend_snapshot()
-    person_ids = {person['person_id'] for person in snapshot['persons']}
-    work_ids = {work['work_id'] for work in snapshot['works']}
-    if body.requester_id not in person_ids or body.source_person_id not in person_ids:
-        raise HTTPException(404, 'Unknown handover person')
-    if body.work_id not in work_ids:
-        raise HTTPException(404, 'Unknown Work')
-    if body.requester_id == body.source_person_id:
-        raise HTTPException(422, 'Requester and source person must differ')
-    rows = _handover_db('POST', payload={
-        'requester_id': body.requester_id,
-        'source_person_id': body.source_person_id,
-        'work_id': body.work_id,
-        'status': 'pending',
-    })
-    return {'request': rows[0]}
-
-@app.post('/api/demo/handover-requests/{request_id}/decision')
-def demo_handover_decide(request_id: str, body: DemoHandoverDecision, _=Depends(demo_auth), actor=Depends(slack_actor)):
-    from uuid import UUID
-    try:
-        UUID(request_id)
-    except ValueError:
-        raise HTTPException(422, 'Invalid request ID') from None
-    if actor and actor['person_id'] != body.actor_id:
-        raise HTTPException(403, 'Actor mismatch')
-    rows = _handover_db(params={
-        'select': '*', 'request_id': 'eq.' + request_id, 'status': 'eq.pending',
-    })
-    if not rows:
-        raise HTTPException(409, 'Request is not pending')
-    if body.actor_id != rows[0]['source_person_id']:
-        raise HTTPException(403, 'Approval permission denied')
-    patch = {'status': body.status, 'approved_by': body.actor_id,
-             'verification_method': 'demo_yubikey' if body.status == 'approved' else None,
-             'approved_at': datetime.now(timezone.utc).isoformat() if body.status == 'approved' else None}
-    updated = _handover_db('PATCH', params={
-        'request_id': 'eq.' + request_id, 'status': 'eq.pending',
-    }, payload=patch)
-    if not updated:
-        raise HTTPException(409, 'Request was already processed')
-    priority_result = None
-    priority_error = None
-    if body.status == 'approved':
-        try:
-            # Rank one combined queue over every person whose handover to this
-            # requester has already been approved. Repeated Works from the same
-            # source do not duplicate that source's Tasks.
-            receiver_id = updated[0]['requester_id']
-            source_ids = _approved_handoff_source_ids(receiver_id)
-            priority_result = ml_bridge.priorities(
-                person_ids=source_ids,
-                receiver_person_id=receiver_id,
-            )
-        except HTTPException as exc:
-            priority_error = str(exc.detail)
-        except Exception:
-            priority_error = 'ML priority response could not be processed'
-    return {'request': updated[0], 'priorities': priority_result,
-            'priority_error': priority_error}
