@@ -205,7 +205,7 @@
   if(!res.ok){let d='';try{d=(await res.json()).detail||'';}catch(_){}throw new Error(d||('인수인계 요청 실패 (HTTP '+res.status+')'));}
   return res.json();
  }
- async function load(){return (await api()).requests.map(r=>({
+ async function load(){return (await api(PERSON_IDS[actor]?'?recipient_id='+encodeURIComponent(PERSON_IDS[actor]):'')).requests.map(r=>({
   id:r.request_id,requester:Object.keys(PERSON_IDS).find(name=>PERSON_IDS[name]===r.requester_id)||r.requester_id,owner:Object.keys(PERSON_IDS).find(name=>PERSON_IDS[name]===r.source_person_id)||r.source_person_id,workId:r.work_id,
   title:window.handoverWorkTitles?.[r.work_id]||r.work_id,status:(actor==='팀장'&&!verifiedMode&&r.status==='pending'&&managerApprovals()[r.request_id])||r.status,approvedBy:(actor==='팀장'&&!verifiedMode&&r.status==='pending'&&managerApprovals()[r.request_id])?'팀장 (UI 시연)':Object.keys(PERSON_IDS).find(name=>PERSON_IDS[name]===r.approved_by)||r.approved_by||'-',
   requesterId:r.requester_id,sourceId:r.source_person_id
@@ -307,7 +307,7 @@
   catch(e){return message(e.message)}
   if(!r)return message('승인된 인수인계만 확인 가능합니다.');
   setActiveWorkIds([r.workId]);
-  try{await window.loadApprovedHandovers([r.workId]);}catch(error){return message(error.message);}
+  try{await window.loadApprovedHandovers([r.workId],PERSON_IDS[actor]);}catch(error){return message(error.message);}
   closePanel();
   if(PROJECTS.some(p=>p.id===r.workId)){
    showGate('approved');
@@ -557,7 +557,7 @@
    const pending=records.some(r=>r.status==='pending');
    const rejected=records.some(r=>r.status==='rejected');
    if(approved){
-    await window.loadApprovedHandovers(records.filter(r=>r.status==='approved').map(r=>r.workId));
+    await window.loadApprovedHandovers(records.filter(r=>r.status==='approved').map(r=>r.workId),requesterId);
     if(!PROJECTS.length)throw new Error('승인된 Work가 DB 응답에 없습니다.');
    }
    showGate(approved?'approved':pending?'pending':rejected?'rejected':'empty');
