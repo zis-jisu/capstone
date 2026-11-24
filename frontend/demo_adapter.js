@@ -565,9 +565,9 @@
     if(!response.ok)throw new Error('권한 확인 실패 (HTTP '+response.status+')');
     attach(await response.json());
   };
-  window.loadApprovedHandovers = async function(workIds) {
+  window.loadApprovedHandovers = async function(workIds, recipientId) {
     const ids=[...new Set(workIds)];
-    const response=await fetch('/api/demo/data?work_ids='+encodeURIComponent(ids.join(',')),{credentials:'same-origin',cache:'no-store'});
+    const response=await fetch('/api/demo/data?work_ids='+encodeURIComponent(ids.join(','))+(recipientId?'&recipient_id='+encodeURIComponent(recipientId):''),{credentials:'same-origin',cache:'no-store'});
     if(!response.ok)throw new Error('승인 업무 조회 실패 (HTTP '+response.status+')');
     const data=await response.json(), allowed=new Set(workIds);
     const works=(data.works||[]).filter(w=>allowed.has(w.work_id));
