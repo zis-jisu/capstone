@@ -562,6 +562,10 @@
    }
    showGate(approved?'approved':pending?'pending':rejected?'rejected':'empty');
    if(approved&&typeof render==='function')render();
+   if(approved&&window.refreshReceivedPriorities){
+    try{await window.refreshReceivedPriorities(requesterId);}
+    catch(error){console.warn('Received priorities unavailable',error);}
+   }
   }catch(e){showGate('error');message('승인 상태를 확인하지 못했습니다. '+e.message);}
  }
  function updateSidebarIdentity(){
@@ -797,6 +801,11 @@
     if(!r.ok)throw Error('우선순위 산출 실패 (HTTP '+r.status+')');
     return window.applyMlPriorityResult(id,await r.json());
   };
+  window.refreshReceivedPriorities=async(recipientId)=>{
+    const r=await fetch('/api/demo/received-priorities?recipient_id='+encodeURIComponent(recipientId),{credentials:'same-origin',cache:'no-store'});
+    if(!r.ok)throw Error('인수 업무 우선순위 조회 실패 (HTTP '+r.status+')');
+    return window.applyMlPriorityResult(recipientId,await r.json());
+  };
   const originalSync=window.runAdminSync;
   if(typeof originalSync==='function')window.runAdminSync=async(...args)=>{
     await originalSync(...args);
@@ -813,11 +822,18 @@
     if(assignment){
       try{
         if(assignment?.priority_error)throw new Error(assignment.priority_error);
-        const priority=assignment?.priorities
-          ? window.applyMlPriorityResult(assigneeId,assignment.priorities)
-          : await window.refreshMlPriorities(assigneeId);
-        if(!priority.matchedTaskIds.length)throw new Error('ML 결과와 일치하는 Task를 찾지 못했습니다');
-        document.getElementById('admin-assign-result').textContent+=` · 선택 인수자 ML 우선순위 ${priority.matchedTaskIds.length}건 반영`;
+        const result=assignment.priorities;
+        const assignedIds=new Set(assignment.task_ids||[]);
+        const matches=new Set(priorityRows(result).filter(([key,value])=>{
+          const id=String(value?.task_id??value?.taskId??value?.id??value?.task?.task_id??key);
+          const score=value?.final_priority_score??value?.priority_score??value?.score??value?.priority;
+          const rank=value?.final_priority_rank??value?.priority_rank??value?.rank??value?.ranking;
+          return assignedIds.has(id)&&[score,rank].some(n=>n!=null&&n!==''&&Number.isFinite(Number(n)));
+        }).map(([key,value])=>String(value?.task_id??value?.taskId??value?.id??value?.task?.task_id??key)));
+        const output=document.getElementById('admin-assign-result');
+        output.textContent+=matches.size
+          ? ` · 배정 Task ML 우선순위 ${matches.size}/${assignedIds.size}건 산출`
+          : ' · ML 응답 수신 · 배정 Task 우선순위 데이터 없음';
       }
       catch(e){document.getElementById('admin-assign-result').textContent+=' · 우선순위 산출 실패: '+e.message;}
     }
@@ -843,8 +859,8 @@
       const response=await fetch('/api/demo/handover-requests',{credentials:'same-origin',cache:'no-store'});
       if(!response.ok)return;
       const rows=(await response.json()).requests||[];
-      const people=[...new Set(rows.filter(row=>row.status==='approved').map(row=>row.approved_by||row.source_person_id).filter(Boolean))];
-      for(const id of people)await window.refreshMlPriorities(id);
+      // Recipient-scoped refresh is performed by refreshGate after the tasks load.
+      // Do not rank unrelated approvers or overwrite the recipient's result.
     }catch(_error){}
   },1200);
 })();
