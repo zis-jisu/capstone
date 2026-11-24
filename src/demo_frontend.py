@@ -198,7 +198,7 @@ def demo_my_works(person_id: str = '', _=Depends(demo_auth), identity=Depends(sl
             'authenticated':bool(identity)}
 
 @app.get('/api/demo/data', include_in_schema=False)
-def demo_data(work_ids: str = '', _=Depends(demo_auth), actor=Depends(slack_actor)):
+def demo_data(work_ids: str = '', _=Depends(demo_auth), actor=Depends(slack_actor), recipient_id: str = ''):
     mock_store = _frontend_store()
     original_store = SupabaseStore()
     raw_mock = mock_store.snapshot()
@@ -213,18 +213,21 @@ def demo_data(work_ids: str = '', _=Depends(demo_auth), actor=Depends(slack_acto
                          if row.get('message_id') in original_source_ids]
     messages = _merge_rows(mock_messages, original_messages, 'message_id')
     graph = export_graph(snapshot)
-    if actor:
-        # In verified mode, an employee may only retrieve an approved Work.
-        # Supervisors and the original handover source can review the source dataset.
-        if actor['person_id'] != JISOO_ID:
-            grants = _handover_db(params={
-                'select': 'work_id',
-                'requester_id': 'eq.' + actor['person_id'],
-                'status': 'eq.approved',
-            })
-            allowed_work_ids = {g['work_id'] for g in grants}
-            snapshot, messages = _filter_work_data(snapshot, messages, allowed_work_ids)
-        # Graph ML metadata is summary only; no raw graph nodes are exposed here.
+    receiver = actor['person_id'] if actor else (recipient_id if not slack_login_enabled() else '')
+    if receiver and (recipient_id or (actor and receiver != JISOO_ID)):
+        grants = _handover_db(params={
+            'select': 'work_id', 'requester_id': 'eq.' + receiver,
+            'status': 'eq.approved',
+        })
+        approved_works = {g['work_id'] for g in grants}
+        assigned = _manager_assignment_grants(receiver, snapshot)
+        allowed_work_ids = approved_works | {g['work_id'] for g in assigned}
+        allowed_task_ids = {task for g in assigned for task in g['task_ids']}
+        allowed_task_ids.update(e['target_id'] for e in snapshot['edges']
+            if e['source_type'] == 'Work' and e['source_id'] in approved_works
+            and e['relation'] == 'HAS_TASK')
+        snapshot, messages = _filter_work_data(snapshot, messages, allowed_work_ids, allowed_task_ids)
+        graph = export_graph(snapshot)
     if work_ids:
         requested = {value.strip() for value in work_ids.split(',') if value.strip()}
         if len(requested) > 50 or any(not re.fullmatch(r'[A-Za-z0-9_-]{1,90}', value) for value in requested):
@@ -287,7 +290,7 @@ def slack_permalink(event_id: str, _=Depends(demo_auth), actor=Depends(slack_act
         raise HTTPException(404, 'Slack message does not exist or is inaccessible')
     return RedirectResponse(permalink, status_code=302)
 
-def _filter_work_data(snapshot, messages, allowed_work_ids):
+def _filter_work_data(snapshot, messages, allowed_work_ids, allowed_task_ids=None):
     """Keep only evidence attached to authorized Works, never all persons/events."""
     permitted_works = {w['work_id'] for w in snapshot['works']
                        if w['work_id'] in allowed_work_ids}
@@ -295,6 +298,11 @@ def _filter_work_data(snapshot, messages, allowed_work_ids):
     task_ids = {e['target_id'] for e in edges
                 if e['source_type'] == 'Work' and e['source_id'] in permitted_works
                 and e['relation'] == 'HAS_TASK'}
+    if allowed_task_ids is not None:
+        task_ids.intersection_update(allowed_task_ids)
+    permitted_works = {e['source_id'] for e in edges
+                       if e['source_type'] == 'Work' and e['source_id'] in permitted_works
+                       and e['relation'] == 'HAS_TASK' and e['target_id'] in task_ids}
     event_ids = {e['target_id'] for e in edges
                  if e['source_type'] == 'Task' and e['source_id'] in task_ids
                  and e['relation'] == 'HAS_EVENT'}
@@ -620,8 +628,7 @@ def _create_assignment(body: AssignmentRequest, actor: str):
                      and e.get('source_id') == body.source_person_id
                      and e.get('target_type') == 'Task'
                      and e.get('relation') == 'OWNER'}
-            if task_ids and not owned.intersection(task_ids):
-                raise HTTPException(422,'Selected person is not an owner of this Work')
+            task_ids = [task_id for task_id in task_ids if task_id in owned]
     else:
         if body.task_id not in tasks:
             raise HTTPException(404,'Unknown Task')
@@ -630,7 +637,8 @@ def _create_assignment(body: AssignmentRequest, actor: str):
         raise HTTPException(409,'This Work has no unfinished Tasks')
     task_ids = sorted(task_ids)
     rows = _db_assignments('POST', params={'on_conflict': 'task_id,assignee_id'}, rows=[
-        {'task_id': task_id, 'assignee_id': body.assignee_id, 'assigned_by': actor}
+        {'task_id': task_id, 'assignee_id': body.assignee_id, 'assigned_by': actor,
+         'source_person_id': body.source_person_id, 'work_id': body.work_id}
         for task_id in task_ids
     ])
     if len(rows) != len(task_ids):
@@ -830,11 +838,49 @@ def demo_handover_catalog(source_person_id: str, _=Depends(demo_auth), actor=Dep
     return {'source_person_id': source_person_id, 'works': handover_catalog(snapshot, source_person_id)}
 
 
+def _manager_assignment_grants(receiver_id, snapshot=None):
+    """Read active Task assignments without widening them into full Work grants."""
+    rows = _db_assignments(params={'select': '*', 'assignee_id': 'eq.' + receiver_id,
+                                   'status': 'eq.assigned'})
+    if not rows:
+        return []
+    snapshot = snapshot if snapshot is not None else _hybrid_frontend_snapshot()
+    work_links, owner_links = {}, {}
+    for edge in snapshot['edges']:
+        task = edge['target_id']
+        if edge['source_type'] == 'Work' and edge['relation'] == 'HAS_TASK':
+            work_links.setdefault(task, set()).add(edge['source_id'])
+        if edge['source_type'] == 'Person' and edge['relation'] == 'OWNER':
+            owner_links.setdefault(task, set()).add(edge['source_id'])
+    grouped = {}
+    for row in rows:
+        task = row['task_id']
+        works = work_links.get(task, set())
+        owners = owner_links.get(task, set()) - {receiver_id}
+        # Old assignments did not store scope: infer only unambiguous links.
+        work = row.get('work_id') or (next(iter(works)) if len(works) == 1 else None)
+        source = row.get('source_person_id') or (next(iter(owners)) if len(owners) == 1 else None)
+        if not work or work not in works or not source or source == receiver_id:
+            continue
+        key = (work, source)
+        if key not in grouped:
+            grouped[key] = {'request_id': 'assignment-' + str(row['assignment_id']),
+                            'requester_id': receiver_id, 'source_person_id': source,
+                            'work_id': work, 'status': 'approved',
+                            'approved_by': row['assigned_by'], 'approved_at': row['assigned_at'],
+                            'verification_method': 'manager_assignment', 'task_ids': []}
+        grouped[key]['task_ids'].append(task)
+    return list(grouped.values())
+
+
 @app.get('/api/demo/handover-requests')
-def demo_handover_list(_=Depends(demo_auth), actor=Depends(slack_actor)):
+def demo_handover_list(_=Depends(demo_auth), actor=Depends(slack_actor), recipient_id: str = ''):
     rows = _handover_db(params={'select': '*', 'order': 'created_at.desc', 'limit': '100'})
     if actor:
         rows = [r for r in rows if actor['person_id'] in (r['requester_id'], r['source_person_id'])]
+    receiver = actor['person_id'] if actor else (recipient_id if not slack_login_enabled() else '')
+    if receiver:
+        rows.extend(_manager_assignment_grants(receiver))
     return {'requests': rows}
 
 @app.post('/api/demo/handover-requests', status_code=201)
