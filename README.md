@@ -8,6 +8,7 @@ Slack 대화를 Event → Task → Work로 구조화하고, Supabase에 저장�
 | --- | --- |
 | `src/`, `frontend/`, `prompts/` | Slack 수집·구조화, API, 인수인계 화면 |
 | `ml/` | R-GAE 학습·우선순위 API와 독립 Docker 배포 설정 |
+| `graph/` | 합성 그래프 예시 데이터와 생성·분석 스크립트 |
 | `supabase/migrations/` | 앱 데이터베이스 마이그레이션 |
 | `tests/`, `ml/tests/` | 앱 및 ML 서비스 검증 |
 | `docs/` | API와 인증 흐름 문서 |
