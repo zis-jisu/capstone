@@ -1,0 +1,3 @@
+﻿fold,family,n_positive,ROC_AUC,Average_Precision
+1,Person->Task,50,0.582,0.5621289780818233
+2,Person->Task,50,0.6272,0.6192400705837562

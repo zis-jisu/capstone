@@ -1,0 +1,36 @@
+{
+  "leakage_control": "edge weights and priority coefficients selected on 10/1 graph only; operational GT first used for final 10/7 reporting",
+  "ground_truth_revision": "replacement_redundancy_v2",
+  "selected_role_weight_profile": "strong",
+  "selected_role_edge_weights_100pt": {
+    "APPROVER": 31,
+    "OWNER": 27,
+    "REVIEWER": 21,
+    "COLLABORATOR": 17,
+    "RELATED": 4
+  },
+  "role_weight_100pt_note": "Integer 100-point presentation of the validated relative ratios; sum=100",
+  "other_relation_weight": 1.0,
+  "selected_priority_coefficients": {
+    "structure": 0.55,
+    "deadline": 0.3,
+    "workflow": 0.15,
+    "related_penalty": 0.1
+  },
+  "related_guard": "RELATED-only is an independent negative term; OWNER/APPROVER/REVIEWER/COLLABORATOR receive no extra final-formula weight",
+  "primary_scope": "temporal 10/1→10/7, 1-hop",
+  "multi_handoff_scenario": {
+    "sources": [
+      "김지수",
+      "박보검"
+    ],
+    "receiver": "원이정",
+    "candidate_scope": "union of source 1-hop active tasks",
+    "gt_status": "existing Kim GT plus explicitly labeled Park proxy GT; not independent human GT"
+  },
+  "candidate_counts": {
+    "1-hop": 20,
+    "2-hop": 35,
+    "all_active_tasks_scored": 76
+  }
+}

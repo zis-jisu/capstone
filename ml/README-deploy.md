@@ -90,8 +90,10 @@ uvicorn rgae_service.api:app --host 0.0.0.0 --port 8000
 
 ## Railway 배포
 
+기존 `ml` 브랜치 서비스를 계속 사용하는 경우에는 소스 연결을 바꿀 필요가 없습니다. 아래 단계는 `main`의 통합 코드를 새로 배포할 때 적용합니다.
+
 1. GitHub `zis-jisu/capstone` 저장소의 `main` 브랜치로 push합니다.
-2. Railway에서 **Deploy from GitHub repo**를 선택하고 branch를 `main`, Root Directory를 `ml`로 지정합니다.
+2. Railway 서비스의 branch를 `main`, Root Directory를 `ml`로 지정합니다.
 3. Variables에 `.env.example` 항목을 등록합니다.
 4. Networking에서 API용 public domain을 생성합니다.
 

@@ -10,6 +10,7 @@ __pycache__/
 .idea/
 .vscode/
 results/
+!ml/experiments/results/
 tmp/
 *.log
 src/slack/collected/

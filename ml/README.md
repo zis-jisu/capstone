@@ -5,16 +5,17 @@ Supabase 최신 mock 테이블을 그래프로 변환해 역할 edge 가중 R-GA
 ## 동작 흐름
 
 ```text
-Supabase mock tables
-  -> get_graph_snapshot() REST RPC
-  -> POST /v1/training: 필요할 때 1회 학습
+Supabase graph_training_snapshots JSONB
+  -> POST /v1/training: 지정 스냅샷으로 학습
   -> Supabase Storage: models/latest.pt 저장
-  -> Railway FastAPI
+  -> Railway FastAPI + get_graph_snapshot() 최신 운영 필드
   -> Postman 또는 클라이언트가 person_id 또는 person_ids 전달
   -> task_id별 우선순위 반환
 ```
 
-별도 JSON 스냅샷 테이블은 만들지 않습니다. 학습할 때마다 RPC가 최신 테이블을 JSON 그래프로 구성하며, 학습 당시 그래프와 학습일은 모델 파일에 포함됩니다.
+학습은 `graph_training_snapshots`의 지정된 JSONB 스냅샷을 사용하고, 우선순위 요청 시 `get_graph_snapshot()` RPC에서 최신 운영 필드를 조회합니다. 학습 시점과 스냅샷 키는 모델 파일에 포함됩니다.
+
+역할 가중치 선정과 시간 이동 1-hop 성능의 최종 검증 자료는 [실험 폴더](experiments/README.md)에 있습니다. 과거 비가중 counterfactual 노트북은 현재 운영 모델의 최종 성능 자료가 아닙니다.
 
 ## 주요 파일
 
@@ -111,7 +112,7 @@ RGAE_DEVICE=cpu
 
 ## Railway 배포
 
-GitHub `zis-jisu/capstone` 저장소의 `main` 브랜치를 소스로 사용하고 Railway Root Directory를 `ml`로 지정합니다.
+기존 Railway ML 서비스가 `ml` 브랜치에서 정상 동작한다면 연결을 유지할 수 있습니다. `main`의 통합 코드를 배포할 때만 브랜치를 `main`, Railway Root Directory를 `ml`로 변경합니다.
 
 1. API 서비스
    - Start Command: Dockerfile 기본 명령
