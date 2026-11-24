@@ -89,7 +89,7 @@
       const workIds=new Set(directory.edges.filter(e=>e.source_type==='Work'&&e.target_type==='Task'&&e.relation==='HAS_TASK'&&owned.has(e.target_id)&&open.has(e.target_id)).map(e=>e.source_id));
       const works=directory.works.filter(w=>workIds.has(w.work_id));
       $('admin-work').innerHTML=sourceId
-        ? '<option value="">배정할 Work를 선택하세요</option>'+works.map(w=>`<option value="${escapeHtml(w.work_id)}">${escapeHtml(w.title||w.work_id)}</option>`).join('')
+        ? '<option value="">배정할 Work를 선택하세요</option>'+(works.length?`<option value="__all__">전체 선택 (${works.length}개 Work)</option>`:'')+works.map(w=>`<option value="${escapeHtml(w.work_id)}">${escapeHtml(w.title||w.work_id)}</option>`).join('')
         : '<option value="">인계자를 먼저 선택하세요</option>';
       if(sourceId&&!works.length)$('admin-work').innerHTML='<option value="">미완료 Work가 없습니다</option>';
     };
@@ -173,8 +173,9 @@
       if(!assigneeId)throw new Error('인수자를 선택하세요.');
       if(sourcePersonId===assigneeId)throw new Error('인계자와 인수자는 달라야 합니다.');
       if(!workId)throw new Error('배정할 Work를 선택하세요.');
-      const result=await request(assignmentApi()+'/assignments',{method:'POST',body:JSON.stringify({work_id:workId,source_person_id:sourcePersonId,assignee_id:assigneeId})});
-      $('admin-assign-result').textContent=`배정 저장 완료 · 미완료 세부 업무 ${result.task_ids?.length||0}건을 인수자에게 배정했습니다.`;
+      const selection=workId==='__all__'?{all_works:true}:{work_id:workId};
+      const result=await request(assignmentApi()+'/assignments',{method:'POST',body:JSON.stringify({...selection,source_person_id:sourcePersonId,assignee_id:assigneeId})});
+      $('admin-assign-result').textContent=`배정 저장 완료 · Work ${result.work_ids?.length||1}개 / 미완료 세부 업무 ${result.task_ids?.length||0}건을 인수자에게 배정했습니다.`;
       try{await loadAssignments();}
       catch(error){$('admin-assignment-list').textContent='배정 내역 갱신 실패: '+error.message;}
       return result;
