@@ -653,9 +653,13 @@ def _create_assignment(body: AssignmentRequest, actor: str):
     priority_result = None
     priority_error = None
     try:
-        # Manager assignment calculates priorities for the selected recipient,
-        # never for a fixed demo person.
-        priority_result = ml_bridge.priorities(body.assignee_id)
+        source_ids = _approved_handoff_source_ids(body.assignee_id)
+        if body.source_person_id and body.source_person_id not in source_ids:
+            source_ids.append(body.source_person_id)
+        if not source_ids:
+            raise HTTPException(422, 'No handover source found for recipient')
+        priority_result = ml_bridge.priorities(
+            person_ids=source_ids, receiver_person_id=body.assignee_id)
     except HTTPException as exc:
         priority_error = str(exc.detail)
     except Exception:
@@ -799,8 +803,9 @@ def _approved_handoff_source_ids(receiver_id):
         'requester_id': 'eq.' + receiver_id,
         'status': 'eq.approved',
     })
+    assigned = _manager_assignment_grants(receiver_id)
     return list(dict.fromkeys(
-        row['source_person_id'] for row in approved if row.get('source_person_id')
+        row['source_person_id'] for row in [*approved, *assigned] if row.get('source_person_id')
     ))
 
 @app.get('/api/demo/auth/config')
@@ -871,6 +876,17 @@ def _manager_assignment_grants(receiver_id, snapshot=None):
                             'verification_method': 'manager_assignment', 'task_ids': []}
         grouped[key]['task_ids'].append(task)
     return list(grouped.values())
+
+
+@app.get('/api/demo/received-priorities')
+def received_priorities(recipient_id: str = '', _=Depends(demo_auth), actor=Depends(slack_actor)):
+    receiver = actor['person_id'] if actor else (recipient_id if not slack_login_enabled() else '')
+    if not receiver:
+        raise HTTPException(403, 'Recipient login required')
+    sources = _approved_handoff_source_ids(receiver)
+    if not sources:
+        return {'priorities': []}
+    return ml_bridge.priorities(person_ids=sources, receiver_person_id=receiver)
 
 
 @app.get('/api/demo/handover-requests')
