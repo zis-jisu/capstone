@@ -112,7 +112,7 @@ RGAE_DEVICE=cpu
 
 ## Railway 배포
 
-기존 Railway ML 서비스가 `ml` 브랜치에서 정상 동작한다면 연결을 유지할 수 있습니다. `main`의 통합 코드를 배포할 때만 브랜치를 `main`, Railway Root Directory를 `ml`로 변경합니다.
+Railway ML 서비스는 GitHub `main` 브랜치의 `ml` 폴더를 Root Directory로 사용합니다.
 
 1. API 서비스
    - Start Command: Dockerfile 기본 명령

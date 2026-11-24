@@ -31,12 +31,12 @@ Slack 메시지 → Event 추출 → Task/Work 연결 → Supabase
 
 ## 로컬 실행
 
-Python 3.11 이상이 필요합니다. 아래 명령은 **PowerShell** 기준이며, 저장소 루트에서 실행합니다. 웹과 ML은 의존성이 달라 각각 가상환경을 만듭니다.
+Python 3.11 또는 3.13을 사용합니다(ML Dockerfile은 3.11, 아래 로컬 검증은 3.13). 아래 명령은 **PowerShell** 기준이며, 저장소 루트에서 실행합니다. 웹과 ML은 의존성이 달라 각각 가상환경을 만듭니다. Python 3.11을 사용한다면 명령의 `-3.13`을 `-3.11`로 바꾸세요.
 
 ### 1. 웹/API
 
 ```powershell
-py -m venv .venv
+py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
@@ -55,7 +55,7 @@ Copy-Item .env.example .env
 
 ```powershell
 cd ml
-py -m venv .venv
+py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
 .\.venv\Scripts\python.exe -m uvicorn rgae_service.api:app --host 127.0.0.1 --port 8001 --env-file .env
@@ -82,16 +82,9 @@ Slack OAuth 로그인은 `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_REDIRE
 
 ## Railway 배포
 
-GitHub `main`에는 웹과 ML이 함께 있지만 Railway에서는 **서로 다른 두 서비스**로 배포합니다. 기존 브랜치에서 서비스가 정상 동작한다면 Railway 연결을 변경할 필요가 없습니다. 이 경우 `main`에 새로 올린 변경은 Railway에 자동 반영되지 않습니다.
+웹과 ML은 같은 GitHub `main` 브랜치에서 별도 Railway 서비스로 실행합니다. 웹은 저장소 루트, ML은 `/ml`을 Root Directory로 사용합니다. 두 서비스는 각각 빌드·배포되며 환경변수와 헬스체크도 따로 설정합니다.
 
-| Railway 서비스 | 현재 연결 브랜치 | 현재 Root Directory | 실행·헬스체크 |
-| --- | --- | --- | --- |
-| `linking-web` | `slack` | 저장소 루트 (`/`) | `uvicorn src.demo_frontend:app --host 0.0.0.0 --port $PORT` / `/api/health` |
-| `capstone` (ML) | `ml` | 저장소 루트 (`/`) | 기존 ML 서비스 설정 / `/health` |
-
-나중에 **`main`의 통합 코드를 Railway에 배포하기로 결정하면** 웹은 브랜치를 `main`으로 바꾸고 Root Directory를 저장소 루트로 유지합니다. ML은 브랜치를 `main`, Root Directory를 `/ml`로 바꿔 그 안의 `Dockerfile`을 사용합니다. 현재 등록된 변수는 서비스별로 유지하고, 웹의 `MODEL_API_URL`이 ML 주소를 가리키며 두 서비스의 `MODEL_API_KEY`가 같은지 확인합니다. Railway의 [모노레포 배포 안내](https://docs.railway.com/deployments/monorepo#deploying-an-isolated-monorepo)도 참고하세요.
-
-`main`으로 전환한 경우에는 웹의 `railway.json` Railpack 설정과 ML의 `ml/Dockerfile`을 각각 확인하고, 배포 후 `/api/health`와 `/health`를 점검합니다. [ML 배포 상세 절차](ml/README-deploy.md)
+서비스별 GitHub 브랜치, Root Directory, 시작 명령, 환경변수와 확인 방법은 [Railway 배포 가이드](docs/railway-deploy.md)에 정리했습니다. ML API의 학습·Storage 설정은 [ML 배포 상세 문서](ml/README-deploy.md)를 참고하세요.
 
 ## 테스트
 
