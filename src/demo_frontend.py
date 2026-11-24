@@ -579,7 +579,7 @@ def _assignment_directory():
                     for person in snapshot['persons']],
         'works': [{key: work.get(key) for key in ('work_id', 'title')} for work in snapshot['works']],
         'tasks': [{key: task.get(key) for key in ('task_id', 'title', 'status')} for task in snapshot['tasks']],
-        'edges': [edge for edge in snapshot['edges'] if edge.get('relation') in ('OWNER', 'HAS_TASK')],
+        'edges': [edge for edge in snapshot['edges'] if edge.get('relation') in ('OWNER', 'REVIEWER', 'COLLABORATOR', 'APPROVER', 'HAS_TASK')],
     }
 
 
@@ -627,7 +627,7 @@ def _create_assignment(body: AssignmentRequest, actor: str):
                      if e.get('source_type') == 'Person'
                      and e.get('source_id') == body.source_person_id
                      and e.get('target_type') == 'Task'
-                     and e.get('relation') == 'OWNER'}
+                     and e.get('relation') in ('OWNER', 'REVIEWER', 'COLLABORATOR', 'APPROVER')}
             task_ids = [task_id for task_id in task_ids if task_id in owned]
     else:
         if body.task_id not in tasks:
