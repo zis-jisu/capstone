@@ -84,7 +84,7 @@
     };
     const renderWorks=()=>{
       const sourceId=resolvePerson($('admin-source-person'));
-      const owned=new Set(directory.edges.filter(e=>e.source_type==='Person'&&e.source_id===sourceId&&e.target_type==='Task'&&e.relation==='OWNER').map(e=>e.target_id));
+      const owned=new Set(directory.edges.filter(e=>e.source_type==='Person'&&e.source_id===sourceId&&e.target_type==='Task'&&['OWNER','REVIEWER','COLLABORATOR','APPROVER'].includes(e.relation)).map(e=>e.target_id));
       const open=new Set(directory.tasks.filter(t=>!['completed','완료'].includes(String(t.status||'').trim().toLowerCase())).map(t=>t.task_id));
       const workIds=new Set(directory.edges.filter(e=>e.source_type==='Work'&&e.target_type==='Task'&&e.relation==='HAS_TASK'&&owned.has(e.target_id)&&open.has(e.target_id)).map(e=>e.source_id));
       const works=directory.works.filter(w=>workIds.has(w.work_id));
