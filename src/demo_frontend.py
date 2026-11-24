@@ -373,6 +373,7 @@ def manager_auth(
 
 
 class AssignmentRequest(BaseModel):
+    all_works: bool = False
     work_id: str | None = Field(default=None, min_length=1, max_length=90)
     task_id: str | None = Field(default=None, min_length=1, max_length=90)
     source_person_id: str | None = Field(default=None, min_length=1, max_length=50)
@@ -603,7 +604,9 @@ def _create_assignment(body: AssignmentRequest, actor: str):
     snap=_hybrid_frontend_snapshot()
     tasks = {t['task_id']:t for t in snap['tasks']}
     works = {w['work_id']:w for w in snap['works']}
-    if not body.work_id and not body.task_id:
+    if body.all_works and (not body.source_person_id or body.work_id or body.task_id):
+        raise HTTPException(422, 'Select a source person and either all Works or one Work')
+    if not body.all_works and not body.work_id and not body.task_id:
         raise HTTPException(422,'work_id is required')
     if body.assignee_id not in {p['person_id'] for p in snap['persons']}:
         raise HTTPException(404,'Unknown person')
@@ -611,24 +614,28 @@ def _create_assignment(body: AssignmentRequest, actor: str):
         raise HTTPException(404,'Unknown source person')
     if body.source_person_id == body.assignee_id:
         raise HTTPException(422,'Source person and recipient must be different')
-    if body.work_id:
-        if body.work_id not in works:
+    task_work = {}
+    if body.all_works or body.work_id:
+        if body.work_id and body.work_id not in works:
             raise HTTPException(404,'Unknown Work')
-        work_task_ids = {e['target_id'] for e in snap['edges']
-                         if e.get('source_type') == 'Work'
-                         and e.get('source_id') == body.work_id
-                         and e.get('target_type') == 'Task'
-                         and e.get('relation') == 'HAS_TASK'}
-        task_ids = [task_id for task_id in work_task_ids
-                    if task_id in tasks
-                    and str(tasks[task_id].get('status', '')).strip().lower() not in ('completed', '완료')]
+        eligible = {task_id for task_id, task in tasks.items()
+                    if str(task.get('status', '')).strip().lower() not in ('completed', '완료')}
         if body.source_person_id:
-            owned = {e['target_id'] for e in snap['edges']
-                     if e.get('source_type') == 'Person'
-                     and e.get('source_id') == body.source_person_id
-                     and e.get('target_type') == 'Task'
-                     and e.get('relation') in ('OWNER', 'REVIEWER', 'COLLABORATOR', 'APPROVER')}
-            task_ids = [task_id for task_id in task_ids if task_id in owned]
+            involved = {e['target_id'] for e in snap['edges']
+                        if e.get('source_type') == 'Person'
+                        and e.get('source_id') == body.source_person_id
+                        and e.get('target_type') == 'Task'
+                        and e.get('relation') in ('OWNER', 'REVIEWER', 'COLLABORATOR', 'APPROVER')}
+            eligible.intersection_update(involved)
+        for edge in snap['edges']:
+            if (edge.get('source_type') == 'Work'
+                and edge.get('target_type') == 'Task'
+                and edge.get('relation') == 'HAS_TASK'
+                and edge['source_id'] in works
+                and (body.all_works or edge['source_id'] == body.work_id)
+                and edge['target_id'] in eligible):
+                task_work.setdefault(edge['target_id'], edge['source_id'])
+        task_ids = list(task_work)
     else:
         if body.task_id not in tasks:
             raise HTTPException(404,'Unknown Task')
@@ -638,7 +645,7 @@ def _create_assignment(body: AssignmentRequest, actor: str):
     task_ids = sorted(task_ids)
     rows = _db_assignments('POST', params={'on_conflict': 'task_id,assignee_id'}, rows=[
         {'task_id': task_id, 'assignee_id': body.assignee_id, 'assigned_by': actor,
-         'source_person_id': body.source_person_id, 'work_id': body.work_id}
+         'source_person_id': body.source_person_id, 'work_id': task_work.get(task_id, body.work_id)}
         for task_id in task_ids
     ])
     if len(rows) != len(task_ids):
@@ -665,6 +672,7 @@ def _create_assignment(body: AssignmentRequest, actor: str):
     except Exception:
         priority_error = 'ML priority response could not be processed'
     return {'assignment':rows[0], 'assignments':rows, 'work_id':body.work_id,
+            'work_ids': sorted(set(task_work.values())),
             'task_ids':task_ids, 'priorities':priority_result,
             'priority_error':priority_error}
 
